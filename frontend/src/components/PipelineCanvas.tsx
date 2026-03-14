@@ -1,4 +1,4 @@
-import type { PipelineJobDetail } from "../types/api";
+import type { PipelineJobDetail } from "../utils/console";
 import {
   type StageView,
   clamp,

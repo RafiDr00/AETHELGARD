@@ -1,5 +1,5 @@
 import { ChevronRight, Radar } from "lucide-react";
-import type { PipelineJobSummary } from "../types/api";
+import type { PipelineJobSummary } from "../utils/console";
 import { formatDuration, humanizeToken } from "../utils/console";
 
 export interface IncidentRailProps {

@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useUiStore } from "../state/uiStore";
-
 import type {
   HealthResponse,
   OpsMetrics,
@@ -11,9 +9,9 @@ import type {
   SpansResponse,
   TimelineResponse,
   TimelineStage,
-} from "../types/api";
+} from "../utils/console";
 
-import { buildLogEntries, buildStageViews, fetchJson } from "../utils/console";
+import { buildLogEntries, buildStageViews, fetchJson, useUiStore } from "../utils/console";
 
 import StatusBar from "../components/StatusBar";
 import IncidentRail from "../components/IncidentRail";

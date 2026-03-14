@@ -1,11 +1,5 @@
 import { Gauge, TerminalSquare } from "lucide-react";
-import type {
-  HealthResponse,
-  OpsMetrics,
-  PipelineJobDetail,
-  PipelineJobSummary,
-} from "../types/api";
-import { type StageView, humanizeToken } from "../utils/console";
+import { type HealthResponse, type OpsMetrics, type PipelineJobDetail, type PipelineJobSummary, type StageView, humanizeToken } from "../utils/console";
 
 export interface DiagnosticsPanelProps {
   health: HealthResponse | null;

@@ -1,10 +1,11 @@
-import type {
-  HealthResponse,
-  OpsMetrics,
-  PipelineJobDetail,
-  PipelineJobSummary,
-} from "../types/api";
-import { formatRelativeUpdate, humanizeToken } from "../utils/console";
+import {
+  type HealthResponse,
+  type OpsMetrics,
+  type PipelineJobDetail,
+  type PipelineJobSummary,
+  formatRelativeUpdate,
+  humanizeToken,
+} from "../utils/console";
 
 interface MetricChipProps {
   label: string;

@@ -5,13 +5,155 @@ import {
   Radar,
   ShieldCheck,
 } from "lucide-react";
+import { create } from "zustand";
 
-import type {
-  PipelineJobDetail,
-  PipelineJobSummary,
-  Span,
-  TimelineStage,
-} from "../types/api";
+// ─── API types (mirrors Pydantic models in api.py) ──────────────────────────
+
+export interface HealthResponse {
+  status: string;
+  version: string;
+  uptime_seconds: number;
+  agents_active: number;
+  environment: string;
+  rag_backend: string | null;
+}
+
+export interface PlatformMetrics {
+  timestamp: string;
+  total_anomalies_detected: number;
+  total_fixes_deployed: number;
+  total_rollbacks: number;
+  avg_mttd_seconds: number;
+  avg_mttr_seconds: number;
+  engineering_hours_saved: number;
+  roi_dollars: number;
+  autonomous_resolution_rate: number;
+  manual_workflows_reduced_pct: number;
+  infrastructure_inefficiency_reduced_pct: number;
+  active_agents: number;
+  events_processed: number;
+  knowledge_base_entries: number;
+}
+
+export interface OpsMetrics {
+  activePipelines: number;
+  dedupRatio: number;
+  failedHealth: number;
+  avgLatency: number;
+  mttdSeconds: number;
+  mttrSeconds: number;
+  autonomousResolutionRate: number;
+}
+
+export interface PipelineJobSummary {
+  job_id: string;
+  scenario: string;
+  status: "pending" | "running" | "completed" | "failed";
+  duration_seconds?: number;
+  anomaly_type?: string;
+  patch_type?: string;
+  remediation_status?: string;
+  failure_stage?: string;
+  failure_reason?: string;
+}
+
+export interface PipelineJobsResponse {
+  count: number;
+  jobs: PipelineJobSummary[];
+}
+
+export interface PipelineJobDetail {
+  job_id: string;
+  status: "pending" | "running" | "completed" | "failed" | "awaiting_approval";
+  scenario: string;
+  duration_seconds?: number;
+  error?: string;
+  anomaly_detected?: boolean;
+  service?: string;
+  anomaly_type?: string;
+  root_cause?: string;
+  patch_type?: string;
+  remediation_status?: string;
+  failure_stage?: string;
+  failure_reason?: string;
+  risk_score?: number;
+  deployed?: boolean;
+  mttd_seconds?: number;
+  mttr_seconds?: number;
+}
+
+export type TimelineStageStatus = "success" | "failed" | "rolled_back" | "deduplicated" | "pending" | "running";
+
+export interface TimelineStage {
+  stage: string;
+  status: TimelineStageStatus;
+  timestamp: string;
+  details?: string;
+}
+
+export interface TimelineResponse {
+  job_id: string;
+  status: string;
+  timeline: TimelineStage[];
+}
+
+export interface SpanAttributes {
+  service_name?: string;
+  anomaly_type?: string;
+  patch_type?: string;
+  risk_score?: number;
+  validation_latency?: number;
+}
+
+export interface Span {
+  name: string;
+  duration: number;
+  status?: string;
+  timestamp?: string;
+  details?: string;
+  attributes?: SpanAttributes;
+}
+
+export interface SpansResponse {
+  job_id: string;
+  trace_name?: string;
+  status?: string;
+  spans: Span[];
+}
+
+export interface RemediationRecord {
+  id: string;
+  anomaly_type: string;
+  service: string;
+  severity: string;
+  root_cause: string;
+  patch_type: string;
+  remediation_status: string;
+  failure_stage: string | null;
+  failure_reason: string | null;
+  risk_score: number;
+  was_successful: boolean;
+  mttd_seconds: number;
+  mttr_seconds: number;
+  completed_at: string;
+}
+
+export interface MetricsHistoryResponse {
+  count: number;
+  records: RemediationRecord[];
+}
+
+export interface PipelineRunRequest {
+  scenario: string;
+}
+
+export interface PipelineJobAccepted {
+  job_id: string;
+  status: string;
+  scenario: string;
+  message: string;
+  poll_url: string;
+}
 
 export type StageKey = "detection" | "diagnosis" | "remediation" | "validation" | "deployment";
 export type Severity = "info" | "warning" | "error" | "success";
@@ -345,4 +487,30 @@ export async function fetchJson<T>(path: string) {
   }
 
   return response.json() as Promise<T>;
+
+// ─── UI State ────────────────────────────────────────────────────────────────
+
+interface UiState {
+  sidebarExpanded: boolean;
+  toggleSidebar: () => void;
+  setSidebarExpanded: (v: boolean) => void;
+  selectedJobId: string | null;
+  setSelectedJobId: (id: string | null) => void;
+  stageReplayIndex: number | null;
+  setStageReplayIndex: (idx: number | null) => void;
+  activePanel: string | null;
+  setActivePanel: (id: string | null) => void;
+}
+
+export const useUiStore = create<UiState>((set) => ({
+  sidebarExpanded: true,
+  toggleSidebar: () => set((s) => ({ sidebarExpanded: !s.sidebarExpanded })),
+  setSidebarExpanded: (v) => set({ sidebarExpanded: v }),
+  selectedJobId: null,
+  setSelectedJobId: (id) => set({ selectedJobId: id }),
+  stageReplayIndex: null,
+  setStageReplayIndex: (idx) => set({ stageReplayIndex: idx }),
+  activePanel: null,
+  setActivePanel: (id) => set({ activePanel: id }),
+}));
 }
