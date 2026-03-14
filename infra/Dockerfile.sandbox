@@ -1,0 +1,34 @@
+# ============================================
+# Aethelgard v2 — Sandbox Dockerfile
+# Minimal, security-hardened container for
+# executing untrusted generated code
+# ============================================
+
+FROM python:3.11-slim
+
+WORKDIR /sandbox
+
+# Security: non-root user with minimal permissions
+RUN groupadd -r sandbox && useradd -r -g sandbox sandbox
+
+# Install only essential dependencies
+RUN pip install --no-cache-dir \
+    pyyaml==6.0.1 \
+    && rm -rf /root/.cache
+
+# Remove unnecessary tools
+RUN apt-get purge -y --auto-remove \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/bin/wget /usr/bin/curl
+
+# Create workspace
+RUN mkdir -p /workspace && chown sandbox:sandbox /workspace
+
+USER sandbox
+
+# No network access (configured in docker-compose)
+# Read-only filesystem (configured in docker-compose)
+# Resource limits (configured in docker-compose)
+
+WORKDIR /workspace
+CMD ["python", "-c", "print('Sandbox ready')"]

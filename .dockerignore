@@ -1,0 +1,58 @@
+# ────────────────────────────────────────────
+# Aethelgard — Docker build context exclusions
+# ────────────────────────────────────────────
+
+# Node / frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Python caches
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.mypy_cache/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Git
+.git/
+.gitignore
+
+# Audit and CI scratch files
+.audit_*.txt
+.pytest_*.txt
+.pytest_rc*.txt
+
+# Logs
+logs/
+*.log
+
+# Secrets / env files  (never bake into image)
+.env
+.env.*
+!.env.example
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Tools / scripts not required at runtime
+tools/
+scripts/
+
+# Tests not required in production image
+tests/

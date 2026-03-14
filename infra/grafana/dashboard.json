@@ -1,0 +1,746 @@
+{
+    "__inputs": [
+        {
+            "name": "DS_PROMETHEUS",
+            "label": "Prometheus",
+            "description": "Aethelgard Prometheus datasource",
+            "type": "datasource",
+            "pluginId": "prometheus",
+            "pluginName": "Prometheus"
+        }
+    ],
+    "uid": "aethelgard-main",
+    "title": "Aethelgard v2 \u2014 Autonomous Remediation",
+    "tags": [
+        "aethelgard",
+        "devops",
+        "sre",
+        "autonomous"
+    ],
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "10s",
+    "time": {
+        "from": "now-3h",
+        "to": "now"
+    },
+    "panels": [
+        {
+            "id": 1,
+            "type": "row",
+            "title": "Platform KPIs",
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 0
+            },
+            "collapsed": false
+        },
+        {
+            "id": 2,
+            "type": "stat",
+            "title": "Autonomous Resolution Rate",
+            "description": "Fraction of incidents resolved without human intervention",
+            "gridPos": {
+                "h": 4,
+                "w": 4,
+                "x": 0,
+                "y": 1
+            },
+            "options": {
+                "colorMode": "background",
+                "graphMode": "area",
+                "justifyMode": "center",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ]
+                },
+                "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                        {
+                            "color": "red",
+                            "value": null
+                        },
+                        {
+                            "color": "yellow",
+                            "value": 0.6
+                        },
+                        {
+                            "color": "green",
+                            "value": 0.85
+                        }
+                    ]
+                }
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit"
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "aethelgard_autonomous_resolution_rate",
+                    "legendFormat": "Resolution Rate"
+                }
+            ]
+        },
+        {
+            "id": 3,
+            "type": "stat",
+            "title": "Total Remediations",
+            "gridPos": {
+                "h": 4,
+                "w": 4,
+                "x": 4,
+                "y": 1
+            },
+            "options": {
+                "colorMode": "background",
+                "graphMode": "area",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ]
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "sum(aethelgard_remediations_total)",
+                    "legendFormat": "Total"
+                }
+            ]
+        },
+        {
+            "id": 4,
+            "type": "stat",
+            "title": "MTTD p50 (ms)",
+            "description": "Median time to detect anomaly",
+            "gridPos": {
+                "h": 4,
+                "w": 4,
+                "x": 8,
+                "y": 1
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "ms",
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 100
+                            },
+                            {
+                                "color": "red",
+                                "value": 500
+                            }
+                        ]
+                    }
+                }
+            },
+            "options": {
+                "colorMode": "background",
+                "graphMode": "area",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ]
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "histogram_quantile(0.50, rate(aethelgard_mttd_seconds_bucket[5m])) * 1000",
+                    "legendFormat": "MTTD p50"
+                }
+            ]
+        },
+        {
+            "id": 5,
+            "type": "stat",
+            "title": "MTTR p50 (s)",
+            "description": "Median end-to-end repair time",
+            "gridPos": {
+                "h": 4,
+                "w": 4,
+                "x": 12,
+                "y": 1
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 10
+                            },
+                            {
+                                "color": "red",
+                                "value": 60
+                            }
+                        ]
+                    }
+                }
+            },
+            "options": {
+                "colorMode": "background",
+                "graphMode": "area",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ]
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "histogram_quantile(0.50, rate(aethelgard_mttr_seconds_bucket[5m]))",
+                    "legendFormat": "MTTR p50"
+                }
+            ]
+        },
+        {
+            "id": 6,
+            "type": "stat",
+            "title": "Engineering Hours Saved",
+            "gridPos": {
+                "h": 4,
+                "w": 4,
+                "x": 16,
+                "y": 1
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "h"
+                }
+            },
+            "options": {
+                "colorMode": "background",
+                "graphMode": "area",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ]
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "aethelgard_engineering_hours_saved_total",
+                    "legendFormat": "Hours"
+                }
+            ]
+        },
+        {
+            "id": 7,
+            "type": "stat",
+            "title": "ROI",
+            "gridPos": {
+                "h": 4,
+                "w": 4,
+                "x": 20,
+                "y": 1
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "currencyUSD"
+                }
+            },
+            "options": {
+                "colorMode": "background",
+                "graphMode": "area",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ]
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "aethelgard_roi_dollars_total",
+                    "legendFormat": "ROI $"
+                }
+            ]
+        },
+        {
+            "id": 10,
+            "type": "row",
+            "title": "Detection & Diagnosis",
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 5
+            },
+            "collapsed": false
+        },
+        {
+            "id": 11,
+            "type": "timeseries",
+            "title": "Anomaly Detection Rate (by type)",
+            "description": "Rate of anomalies detected per minute, broken down by anomaly type",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 6
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqpm",
+                    "custom": {
+                        "lineWidth": 2,
+                        "fillOpacity": 15
+                    }
+                }
+            },
+            "options": {
+                "legend": {
+                    "calcs": [
+                        "lastNotNull",
+                        "sum"
+                    ],
+                    "displayMode": "table",
+                    "placement": "bottom"
+                },
+                "tooltip": {
+                    "mode": "multi"
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "rate(aethelgard_anomalies_detected_total[2m]) * 60",
+                    "legendFormat": "{{anomaly_type}} / {{severity}}"
+                }
+            ]
+        },
+        {
+            "id": 12,
+            "type": "timeseries",
+            "title": "Diagnosis Confidence Distribution (p50/p90)",
+            "description": "How confident the DiagnosisAgent is in root cause identification",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 6
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit",
+                    "min": 0,
+                    "max": 1,
+                    "custom": {
+                        "lineWidth": 2
+                    }
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "histogram_quantile(0.50, rate(aethelgard_diagnosis_confidence_bucket[10m]))",
+                    "legendFormat": "Confidence p50"
+                },
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "histogram_quantile(0.90, rate(aethelgard_diagnosis_confidence_bucket[10m]))",
+                    "legendFormat": "Confidence p90"
+                }
+            ]
+        },
+        {
+            "id": 20,
+            "type": "row",
+            "title": "Pipeline Execution Latency",
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 14
+            },
+            "collapsed": false
+        },
+        {
+            "id": 21,
+            "type": "timeseries",
+            "title": "Pipeline Duration Percentiles",
+            "description": "p50 / p90 / p99 end-to-end remediation pipeline latency",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 15
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "custom": {
+                        "lineWidth": 2
+                    }
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "histogram_quantile(0.50, rate(aethelgard_pipeline_duration_seconds_bucket[5m]))",
+                    "legendFormat": "p50"
+                },
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "histogram_quantile(0.90, rate(aethelgard_pipeline_duration_seconds_bucket[5m]))",
+                    "legendFormat": "p90"
+                },
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "histogram_quantile(0.99, rate(aethelgard_pipeline_duration_seconds_bucket[5m]))",
+                    "legendFormat": "p99"
+                }
+            ]
+        },
+        {
+            "id": 22,
+            "type": "timeseries",
+            "title": "Agent Stage Duration p90 (by agent)",
+            "description": "Time each agent spends — spot which stage is the bottleneck",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 15
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "custom": {
+                        "lineWidth": 2,
+                        "fillOpacity": 10
+                    }
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "histogram_quantile(0.90, sum(rate(aethelgard_agent_stage_duration_seconds_bucket[5m])) by (agent_type, le))",
+                    "legendFormat": "{{agent_type}} p90"
+                }
+            ]
+        },
+        {
+            "id": 30,
+            "type": "row",
+            "title": "Validation & Security",
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 23
+            },
+            "collapsed": false
+        },
+        {
+            "id": 31,
+            "type": "piechart",
+            "title": "Sandbox Validation Outcomes",
+            "description": "passed / failed / blocked (AST) / timeout breakdown",
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 24
+            },
+            "options": {
+                "pieType": "donut",
+                "displayLabels": [
+                    "percent",
+                    "name"
+                ]
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "sum(aethelgard_sandbox_validations_total) by (result)",
+                    "legendFormat": "{{result}}"
+                }
+            ]
+        },
+        {
+            "id": 32,
+            "type": "timeseries",
+            "title": "Security Policy Violations (rate/min)",
+            "description": "AST analysis catching dangerous code patterns in generated patches",
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 24
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqpm",
+                    "color": {
+                        "fixedColor": "red",
+                        "mode": "fixed"
+                    }
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "sum(rate(aethelgard_policy_violations_total[5m]) * 60) by (violation_type)",
+                    "legendFormat": "{{violation_type}}"
+                }
+            ]
+        },
+        {
+            "id": 33,
+            "type": "timeseries",
+            "title": "Validation Risk Score Percentiles",
+            "description": "Lower is better. High scores block auto-deployment.",
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 24
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit",
+                    "min": 0,
+                    "max": 1
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "histogram_quantile(0.50, rate(aethelgard_validation_risk_score_bucket[10m]))",
+                    "legendFormat": "Risk p50"
+                },
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "histogram_quantile(0.90, rate(aethelgard_validation_risk_score_bucket[10m]))",
+                    "legendFormat": "Risk p90"
+                }
+            ]
+        },
+        {
+            "id": 40,
+            "type": "row",
+            "title": "Remediation Outcomes",
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 32
+            },
+            "collapsed": false
+        },
+        {
+            "id": 41,
+            "type": "timeseries",
+            "title": "Remediation Success Rate (%)",
+            "description": "Percentage of remediations that deployed successfully",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 33
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percent",
+                    "min": 0,
+                    "max": 100,
+                    "custom": {
+                        "lineWidth": 2
+                    },
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "red",
+                                "value": null
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 75
+                            },
+                            {
+                                "color": "green",
+                                "value": 90
+                            }
+                        ]
+                    }
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "100 * sum(rate(aethelgard_remediations_total{status='deployed'}[10m])) / sum(rate(aethelgard_remediations_total[10m]))",
+                    "legendFormat": "Success %"
+                }
+            ]
+        },
+        {
+            "id": 42,
+            "type": "bargauge",
+            "title": "Remediations by Patch Type",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 33
+            },
+            "options": {
+                "orientation": "horizontal",
+                "displayMode": "gradient",
+                "reduceOptions": {
+                    "calcs": [
+                        "sum"
+                    ]
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "sum(aethelgard_remediations_total) by (patch_type)",
+                    "legendFormat": "{{patch_type}}"
+                }
+            ]
+        },
+        {
+            "id": 50,
+            "type": "row",
+            "title": "RAG Knowledge Base & Learning",
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 41
+            },
+            "collapsed": false
+        },
+        {
+            "id": 51,
+            "type": "timeseries",
+            "title": "RAG Query Latency p90 (ms)",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 42
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "ms"
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "histogram_quantile(0.90, rate(aethelgard_rag_query_duration_seconds_bucket[5m])) * 1000",
+                    "legendFormat": "{{backend}} p90"
+                }
+            ]
+        },
+        {
+            "id": 52,
+            "type": "timeseries",
+            "title": "Knowledge Base Document Growth",
+            "description": "Grows as successful remediations are stored by the learning system",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 42
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "sum(aethelgard_knowledge_base_documents) by (category)",
+                    "legendFormat": "{{category}}"
+                }
+            ]
+        },
+        {
+            "id": 60,
+            "type": "row",
+            "title": "Active Jobs & API Security",
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 50
+            },
+            "collapsed": false
+        },
+        {
+            "id": 61,
+            "type": "timeseries",
+            "title": "Active Pipeline Jobs",
+            "gridPos": {
+                "h": 6,
+                "w": 12,
+                "x": 0,
+                "y": 51
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "min": 0
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "aethelgard_active_pipeline_jobs",
+                    "legendFormat": "Active Jobs"
+                }
+            ]
+        },
+        {
+            "id": 62,
+            "type": "timeseries",
+            "title": "API Auth Failures (rate/min)",
+            "gridPos": {
+                "h": 6,
+                "w": 12,
+                "x": 12,
+                "y": 51
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqpm",
+                    "color": {
+                        "fixedColor": "red",
+                        "mode": "fixed"
+                    }
+                }
+            },
+            "targets": [
+                {
+                    "datasource": "${DS_PROMETHEUS}",
+                    "expr": "rate(aethelgard_api_auth_failures_total[1m]) * 60",
+                    "legendFormat": "auth failures/min"
+                }
+            ]
+        }
+    ]
+}

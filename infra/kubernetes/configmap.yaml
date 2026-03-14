@@ -1,0 +1,20 @@
+# Aethelgard v2 — Kubernetes ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aethelgard-config
+  namespace: aethelgard
+data:
+  redis-host: "aethelgard-redis"
+  redis-port: "6379"
+  app-env: "production"
+  log-level: "INFO"
+  sandbox-timeout: "30"
+  sandbox-memory-limit: "256m"
+  sandbox-cpu-limit: "0.5"
+  agent-max-retries: "3"
+  agent-timeout: "120"
+  risk-threshold-auto-deploy: "0.3"
+  risk-threshold-supervised: "0.7"
+  metrics-retention-days: "90"
+  engineer-hourly-cost: "95.0"

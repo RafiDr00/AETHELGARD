@@ -1,0 +1,156 @@
+# Aethelgard v2 — Kubernetes Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aethelgard-api
+  namespace: aethelgard
+  labels:
+    app: aethelgard
+    component: api
+    version: v2.0.0
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: aethelgard
+      component: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: "25%"
+      maxUnavailable: "25%"
+  template:
+    metadata:
+      labels:
+        app: aethelgard
+        component: api
+        version: v2.0.0
+    spec:
+      serviceAccountName: aethelgard-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: aethelgard-api
+          image: aethelgard/api:v2.0.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+              name: http
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: AETHELGARD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aethelgard-secrets
+                  key: aethelgard-api-key
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: aethelgard-config
+                  key: redis-host
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: aethelgard-config
+                  key: redis-port
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aethelgard-secrets
+                  key: openai-api-key
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: data-volume
+              mountPath: /app/data
+            - name: logs-volume
+              mountPath: /app/logs
+      volumes:
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: aethelgard-data-pvc
+        - name: logs-volume
+          emptyDir: {}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: aethelgard
+              component: api
+
+---
+# Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: aethelgard-api-hpa
+  namespace: aethelgard
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: aethelgard-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+
+---
+# Pod Disruption Budget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aethelgard-api-pdb
+  namespace: aethelgard
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: aethelgard
+      component: api

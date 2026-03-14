@@ -1,0 +1,9 @@
+# Aethelgard v2 — Kubernetes Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aethelgard
+  labels:
+    app: aethelgard
+    version: v2
+    managed-by: aethelgard-platform

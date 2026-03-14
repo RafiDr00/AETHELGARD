@@ -1,0 +1,72 @@
+# ============================================
+# Aethelgard v2 — Autonomous DevOps Platform
+# Production Dependencies (audited 2026-03-10)
+#
+# Removed packages that were listed but never
+# imported anywhere in the codebase:
+#   langchain, langchain-community, langchain-core,
+#   langgraph, openai   — no Python file imports any
+#   aioredis            — redis>=4 ships redis.asyncio
+#   asyncio-mqtt        — not imported
+#   confluent-kafka     — not imported
+#   boto3, botocore     — not imported
+#   kubernetes          — not imported
+#   astroid, pylint     — CI tool, not runtime
+#   altair              — not imported
+# ============================================
+
+# --- Core Framework ---
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.2
+pydantic-settings==2.1.0
+
+# --- Async HTTP ---
+aiohttp==3.9.1
+aiofiles==23.2.1
+httpx==0.25.2
+
+# --- Vector Database / ML ---
+faiss-cpu>=1.7.4
+sentence-transformers==2.2.2
+numpy==1.26.2
+scikit-learn>=1.4.0
+
+# --- Event Bus ---
+# redis[asyncio] ships redis.asyncio; no separate aioredis needed
+redis[asyncio]==5.0.1
+
+# --- Containerization ---
+docker==7.0.0
+
+# --- Dashboard ---
+streamlit==1.29.0
+plotly==5.18.0
+pandas==2.1.4
+
+# --- Security / Code Analysis ---
+bandit==1.7.6
+
+# --- Testing ---
+pytest==7.4.3
+pytest-asyncio==0.23.2
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+
+# --- Observability ---
+prometheus-client==0.19.0
+opentelemetry-api==1.22.0
+opentelemetry-sdk==1.22.0
+opentelemetry-instrumentation-fastapi==0.43b0
+opentelemetry-instrumentation-asgi==0.43b0
+opentelemetry-instrumentation==0.43b0
+structlog==23.2.0
+
+# --- Utilities ---
+python-dotenv==1.0.0
+pyyaml==6.0.1
+jinja2==3.1.2
+click==8.1.7
+rich==13.7.0
+tenacity==8.2.3
+croniter==2.0.1
