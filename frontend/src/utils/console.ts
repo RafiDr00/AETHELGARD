@@ -23,10 +23,9 @@ export interface PlatformMetrics {
   total_anomalies_detected: number;
   total_fixes_deployed: number;
   total_rollbacks: number;
-  avg_mttd_seconds: number;
-  avg_mttr_seconds: number;
-  engineering_hours_saved: number;
-  roi_dollars: number;
+  avg_pipeline_latency_ms: number;
+  events_per_second: number;
+  avg_sandbox_duration_seconds: number;
   autonomous_resolution_rate: number;
   manual_workflows_reduced_pct: number;
   infrastructure_inefficiency_reduced_pct: number;

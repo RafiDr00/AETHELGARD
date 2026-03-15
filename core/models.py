@@ -261,9 +261,6 @@ class PlatformMetrics(BaseModel):
     total_anomalies_detected: int = 0
     total_fixes_deployed: int = 0
     total_rollbacks: int = 0
-    avg_mttd_seconds: float = 0.0
-    avg_mttr_seconds: float = 0.0
-    
     # Engineering-focused metrics
     avg_pipeline_latency_ms: float = 0.0
     events_per_second: float = 0.0

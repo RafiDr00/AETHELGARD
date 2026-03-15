@@ -1152,13 +1152,9 @@ class AgentOrchestrator:
         if n == 0:
             return
 
-        self._total_mttd += record.mttd_seconds
-        self._total_mttr += record.mttr_seconds
         self._total_pipeline_latency_ms += (record.total_duration_seconds * 1000.0)
         self._total_sandbox_duration_seconds += record.validation.duration_seconds
 
-        self._metrics.avg_mttd_seconds = self._total_mttd / n
-        self._metrics.avg_mttr_seconds = self._total_mttr / n
         self._metrics.avg_pipeline_latency_ms = self._total_pipeline_latency_ms / n
         self._metrics.avg_sandbox_duration_seconds = self._total_sandbox_duration_seconds / n
 
