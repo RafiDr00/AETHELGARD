@@ -108,7 +108,9 @@ export default function IncidentRail({
             >
               <div className="rail-item-topline">
                 <span className={`sev-badge sev-${sev}`}>{sev}</span>
-                <span className="rail-duration">20m</span>
+                <span className="rail-duration">
+                  {job.duration_seconds ? `${Math.round(job.duration_seconds)}s` : "live"}
+                </span>
               </div>
 
               <p className="rail-scenario">{job.scenario || "Unknown Incident"}</p>
