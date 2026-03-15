@@ -20,7 +20,7 @@ scrape_configs:
     scrape_interval: 10s
     static_configs:
       - targets:
-          - host.docker.internal:8000   # Aethelgard running on host
+          - aethelgard-api:8000   # Aethelgard running in same composes network
         labels:
           service: aethelgard-v2
           component: api

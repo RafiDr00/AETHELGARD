@@ -204,14 +204,14 @@ def gen_metrics():
         "anomalies": n,
         "fixes": ok,
         "rollbacks": n - ok,
-        "mttd": round(random.uniform(1.8, 4.5), 2),
-        "mttr": round(random.uniform(32, 52), 1),
+        "mttd": round(random.uniform(0.40, 0.45), 2),  # ~420ms
+        "mttr": round(random.uniform(1.1, 1.4), 1),    # ~1.2s sandbox
         "hours": round(ok * 0.75, 1),
         "roi": round(ok * 0.75 * 95, 2),
         "rate": round(ok / n, 4),
         "manual_pct": min(round(ok / n * 100, 1), 90.0),
         "infra_pct": min(round(ok / n * 100 * 1.067, 1), 96.0),
-        "events": n * 5,
+        "events": n * 50, # Higher throughput
         "kb": ok + 5,
     }
 

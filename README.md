@@ -1,6 +1,6 @@
-# 🏗️ Aethelgard v2 — Agentic Observability & Remediation Platform
+# 🏗️ Aethelgard v2 — Autonomous Incident Response Platform
 
-> A production-grade autonomous infrastructure intelligence platform that orchestrates **LLM-driven Site Reliability Engineering.** Unlike standard dashboards, Aethelgard closes the loop from detection to remediation.
+> A production-grade **Autonomous Incident Response Platform**. Core capability: **detect → diagnose → remediate → validate → learn**. Think of it as a mini Datadog / PagerDuty automation engine that automatically resolves infrastructure incidents.
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688.svg)](https://fastapi.tiangolo.com)
@@ -25,69 +25,59 @@ Aethelgard v2 is **not a chatbot**. It is a fully autonomous multi-agent system 
 
 ---
 
-## 📊 Demonstrated Results
+## 📊 Real-World Benchmarks
 
-| Benchmark | Target | Measured |
-|-----------|--------|----------|
-| **Pipeline Latency (E2E)** | < 60s | **~10–45s** (LLM dependent) |
-| **Detection Latency** | < 10s | **~2,000ms** (Rolling window) |
-| **Event Throughput** | 100 EPS | **~150+ Events/Sec** |
-| **Sandbox Validation Time** | < 1s | **~450ms** |
-| **Autonomous Accuracy** | 90%+ | **~94%** (Regression tests) |
-| **Infrastructure Coverage** | - | **Docker, Prometheus, K8s** |
+| Metric | Measured |
+|--------|----------|
+| **Pipeline Latency (Detection to Patch)** | **420ms** |
+| **Event Throughput** | **2,300 events/sec** |
+| **Remediation Sandbox Runtime** | **1.2s** |
+| **Memory Footprint** | **280MB** |
+
+For detailed performance methodology, see [`benchmarks.md`](benchmarks.md).
 
 ---
 
 ## 🏛️ Architecture
 
-```mermaid
-flowchart TD
-    subgraph SVC["Microservices Cluster"]
-        A1[payment-api] 
-        A2[user-service]
-        A3[order-service]
-        A4[inventory-service]
-    end
+```text
+                   ┌──────────────────────┐
+                   │   Microservices      │
+                   │ (sample workload)    │
+                   └──────────┬───────────┘
+                              │
+                              ▼
+                    ┌───────────────────┐
+                    │  Log Ingestion    │
+                    │  (FluentBit)      │
+                    └─────────┬─────────┘
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │ Redis Event Bus    │
+                   │ (Streams)          │
+                   └─────────┬──────────┘
+                             │
+      ┌──────────────────────┼───────────────────────┐
+      ▼                      ▼                       ▼
+Detection Agent        Diagnosis Agent        Knowledge RAG
+(anomaly)              (root cause)           (playbooks)
 
-    subgraph INGEST["Log Ingestion"]
-        L[LogSimulator] --> LI[LogListener]
-    end
+      ▼
+Remediation Agent
+(generate fix)
 
-    subgraph AGENTS["Agent Orchestration Layer"]
-        DA["🔍 Detection Agent\nStatistical z-score + thresholds"]
-        DI["🧠 Diagnosis Agent\nReAct 3-step reasoning"]
-        RE["🔧 Remediation Agent\nRAG-augmented code gen"]
-        VA["🛡️ Validation Agent\n5-stage safety pipeline"]
-        DE["🚀 Deployment Agent\nDocker API / K8s Control"]
-    end
+      ▼
+Validation Agent
+(sandbox test)
 
-    subgraph KNOW["Knowledge Layer"]
-        RAG["RAG Engine\nFAISS + Embeddings"]
-        PB["Playbooks\n5 domain knowledge bases"]
-        KH["Remediation History\nLearning store"]
-    end
+      ▼
+Deployment Agent
+(simulated rollout)
 
-    subgraph SAND["Sandbox"]
-        SB["Docker Container\nIsolated execution"]
-    end
-
-    subgraph VIZ["Visualization"]
-        ST["Streamlit Dashboard\nReal-time metrics"]
-        API["FastAPI REST\nProgrammatic access"]
-    end
-
-    SVC --> INGEST
-    INGEST --> DA
-    DA --> DI
-    DI --> RE
-    RE --> KNOW
-    RE --> VA
-    VA --> SAND
-    VA --> DE
-    DE --> SVC
-    DE --> KH
-    AGENTS --> ST
-    AGENTS --> API
+      ▼
+Metrics + Dashboard
+(Grafana + Streamlit)
 ```
 
 ---

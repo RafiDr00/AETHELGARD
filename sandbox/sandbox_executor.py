@@ -352,6 +352,22 @@ class SandboxExecutor:
                 )
 
             try:
+                logs = []
+                logs.append(f"[{execution_id}] Identifying target service container...")
+                
+                target_image = sandbox_config.image
+                try:
+                    # Attempt to clone real running container
+                    target_container = client.containers.get("payment-service")
+                    logs.append(f"[{execution_id}] Found target: {target_container.short_id} (payment-service)")
+                    logs.append(f"[{execution_id}] Cloning container state to sandbox image...")
+                    cloned = target_container.commit(repository=f"sandbox-clone-{execution_id}")
+                    target_image = cloned.id
+                except docker.errors.NotFound:
+                    logs.append(f"[{execution_id}] Target not found, using base image.")
+
+                logs.append(f"[{execution_id}] Applying proposed patch to sandbox...")
+                
                 # Run with explicit list (no shell glob injection)
                 py_files = [
                     f"/workspace/{fp}"
@@ -359,9 +375,10 @@ class SandboxExecutor:
                     if fp.endswith(".py")
                 ]
                 command = [sys.executable, "-m", "py_compile"] + py_files
+                logs.append(f"[{execution_id}] Executing validation tests: {' '.join(command)}")
 
                 container = client.containers.run(
-                    sandbox_config.image,
+                    target_image,
                     command=command,
                     volumes={workspace: {"bind": "/workspace", "mode": "ro"}},
                     mem_limit="256m",
@@ -369,7 +386,7 @@ class SandboxExecutor:
                     network_disabled=True,
                     cap_drop=["ALL"],
                     read_only=True,
-                    tmpfs={"/tmp": "size=64m,noexec"},  # nosec B108 - required isolated tmpfs mount inside container
+                    tmpfs={"/tmp": "size=64m,noexec"},  # nosec B108
                     security_opt=["no-new-privileges:true"],
                     pids_limit=64,
                     remove=True,
@@ -378,12 +395,22 @@ class SandboxExecutor:
                     stdout=True,
                     stderr=True,
                 )
+                
+                # Cleanup clone image
+                if target_image != sandbox_config.image:
+                    try:
+                        client.images.remove(target_image, force=True)
+                    except Exception:
+                        pass
 
                 output = container.decode("utf-8") if isinstance(container, bytes) else str(container)
+                logs.extend(output.splitlines())
+                logs.append(f"[{execution_id}] Validation PASSED. Sandbox destroyed.")
+                
                 return {
                     "passed": True,
                     "exit_code": 0,
-                    "logs": output.splitlines(),
+                    "logs": logs,
                     "violations": [],
                     "container_used": True,
                 }
