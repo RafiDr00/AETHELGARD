@@ -39,9 +39,9 @@ export interface OpsMetrics {
   activePipelines: number;
   dedupRatio: number;
   failedHealth: number;
-  avgLatency: number;
-  mttdSeconds: number;
-  mttrSeconds: number;
+  pipelineLatencyMs: number;
+  throughputEps: number;
+  sandboxDurationSeconds: number;
   autonomousResolutionRate: number;
 }
 

@@ -243,6 +243,8 @@ class AgentOrchestrator:
         # O(1) running metrics totals
         self._total_mttd: float = 0.0
         self._total_mttr: float = 0.0
+        self._total_pipeline_latency_ms: float = 0.0
+        self._total_sandbox_duration_seconds: float = 0.0
         self._success_count: int = 0
         self._metrics = PlatformMetrics()
 
@@ -1152,32 +1154,32 @@ class AgentOrchestrator:
 
         self._total_mttd += record.mttd_seconds
         self._total_mttr += record.mttr_seconds
+        self._total_pipeline_latency_ms += (record.total_duration_seconds * 1000.0)
+        self._total_sandbox_duration_seconds += record.validation.duration_seconds
+
         self._metrics.avg_mttd_seconds = self._total_mttd / n
         self._metrics.avg_mttr_seconds = self._total_mttr / n
+        self._metrics.avg_pipeline_latency_ms = self._total_pipeline_latency_ms / n
+        self._metrics.avg_sandbox_duration_seconds = self._total_sandbox_duration_seconds / n
 
         if record.was_successful:
             self._success_count += 1
 
         self._metrics.autonomous_resolution_rate = self._success_count / n
 
+        # Throughput (EPS) calculation — based on events processed
+        # Assuming each remediation record represents roughly 6 key state transitions (events)
+        total_events = n * 6
+        self._metrics.events_processed = total_events
+        
+        # Simple EPS: total events over time since first record
+        if n > 1:
+            uptime = (datetime.now(timezone.utc) - self._remediation_history[0].completed_at).total_seconds()
+            if uptime > 0:
+                self._metrics.events_per_second = total_events / uptime
+
         # Prometheus gauges
         AUTONOMOUS_RESOLUTION_RATE.set(self._metrics.autonomous_resolution_rate)
-
-        hrs_per_incident = 0.75  # estimate — see docs/observability_runbook.md
-        self._metrics.engineering_hours_saved = self._success_count * hrs_per_incident
-        hourly_cost = self._settings.metrics.engineer_hourly_cost
-        self._metrics.roi_dollars = self._metrics.engineering_hours_saved * hourly_cost
-
-        ENGINEERING_HOURS_SAVED.set(self._metrics.engineering_hours_saved)
-        ROI_DOLLARS.set(self._metrics.roi_dollars)
-
-        if n >= 5:
-            self._metrics.manual_workflows_reduced_pct = min(
-                self._metrics.autonomous_resolution_rate * 100, 90.0
-            )
-            self._metrics.infrastructure_inefficiency_reduced_pct = min(
-                self._metrics.autonomous_resolution_rate * 100 * 1.07, 96.0
-            )
 
         self._metrics.knowledge_base_entries = (
             self._knowledge_engine.document_count if self._knowledge_engine else n

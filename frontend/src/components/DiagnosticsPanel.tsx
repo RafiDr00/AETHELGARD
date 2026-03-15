@@ -110,10 +110,11 @@ export default function DiagnosticsPanel({
   const affectedService = detail?.service ?? selectedJob?.scenario?.split("_")[0] ?? "—";
   const patchType      = detail?.patch_type ?? selectedJob?.patch_type ?? "—";
   const riskScore      = detail?.risk_score;
-  const mttd           = detail?.mttd_seconds ?? ops?.mttdSeconds;
-  const mttr           = detail?.mttr_seconds ?? ops?.mttrSeconds;
-  const dedupRatio     = ops?.dedupRatio ?? 0;
-  const resolutionRate = ops?.autonomousResolutionRate ?? 0;
+  const pipelineLatency = ops?.pipelineLatencyMs ?? 0;
+  const throughput     = ops?.throughputEps ?? 0;
+  const sandboxDur     = ops?.sandboxDurationSeconds ?? 0;
+  const dedupRatio      = ops?.dedupRatio ?? 0;
+  const resolutionRate  = ops?.autonomousResolutionRate ?? 0;
 
   const riskTone: "ok" | "warn" | "err" =
     riskScore === undefined ? "ok"
@@ -134,7 +135,7 @@ export default function DiagnosticsPanel({
     anomalyType !== "—" && anomalyType,
     patchType   !== "—" && patchType,
     riskScore !== undefined && `risk=${riskScore.toFixed(2)}`,
-    mttd !== undefined && `mttd=${mttd.toFixed(1)}s`,
+    pipelineLatency > 0 && `lat=${pipelineLatency.toFixed(0)}ms`,
   ].filter(Boolean) as string[];
 
   // Suggested remediation text
@@ -253,12 +254,13 @@ export default function DiagnosticsPanel({
 
         {/* ── Platform Metrics ──────────────────────────────────────────────── */}
         <DiagSection label="Platform Metrics" defaultOpen={false}>
-          <DiagRow label="MTTD"           value={mttd !== undefined ? `${mttd.toFixed(3)}s` : "—"} />
-          <DiagRow label="MTTR"           value={mttr !== undefined ? `${mttr.toFixed(2)}s` : "—"} />
-          <DiagRow label="Dedup ratio"    value={`${Math.round(dedupRatio)}%`} />
-          <DiagRow label="Auto-resolution" value={formatPercent(resolutionRate / 100)} />
-          <DiagRow label="Active agents"  value={health?.agents_active ?? "—"} />
-          <DiagRow label="Version"        value={health?.version ?? "—"} />
+          <DiagRow label="Pipeline latency" value={`${pipelineLatency.toFixed(0)}ms`} />
+          <DiagRow label="Throughput"       value={`${throughput.toFixed(2)} EPS`} />
+          <DiagRow label="Sandbox time"     value={`${sandboxDur.toFixed(2)}s`} />
+          <DiagRow label="Dedup ratio"      value={`${Math.round(dedupRatio)}%`} />
+          <DiagRow label="Auto-resolution"  value={formatPercent(resolutionRate / 100)} />
+          <DiagRow label="Active agents"   value={health?.agents_active ?? "—"} />
+          <DiagRow label="Version"         value={health?.version ?? "—"} />
         </DiagSection>
 
       </div>

@@ -164,9 +164,9 @@ class OperationsMetricsResponse(BaseModel):
     activePipelines: int
     dedupRatio: float
     failedHealth: int
-    avgLatency: float
-    mttdSeconds: float
-    mttrSeconds: float
+    pipelineLatencyMs: float
+    throughputEps: float
+    sandboxDurationSeconds: float
     autonomousResolutionRate: float
 
 
@@ -667,9 +667,9 @@ async def get_operations_metrics():
         activePipelines=int(active_pipelines),
         dedupRatio=round(dedup_ratio * 100, 2),
         failedHealth=failed_health,
-        avgLatency=round(platform_metrics.avg_mttr_seconds * 1000, 2),
-        mttdSeconds=round(platform_metrics.avg_mttd_seconds, 3),
-        mttrSeconds=round(platform_metrics.avg_mttr_seconds, 3),
+        pipelineLatencyMs=round(platform_metrics.avg_pipeline_latency_ms, 2),
+        throughputEps=round(platform_metrics.events_per_second, 2),
+        sandboxDurationSeconds=round(platform_metrics.avg_sandbox_duration_seconds, 2),
         autonomousResolutionRate=round(platform_metrics.autonomous_resolution_rate * 100, 2),
     )
 
