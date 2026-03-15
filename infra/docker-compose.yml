@@ -114,6 +114,23 @@ services:
           memory: 64M
 
   # ─────────────────────────────────────
+  # Target Microservice
+  # ─────────────────────────────────────
+  payment-service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    container_name: payment-service
+    command: python services/payment_service.py
+    ports:
+      - "8001:8001"
+    environment:
+      - APP_ENV=development
+    networks:
+      - aethelgard-net
+    restart: unless-stopped
+
+  # ─────────────────────────────────────
   # Monitoring (Optional)
   # ─────────────────────────────────────
   prometheus:

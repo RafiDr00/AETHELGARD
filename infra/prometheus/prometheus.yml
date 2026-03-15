@@ -29,6 +29,13 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
+  - job_name: payment-service
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["payment-service:8001"]
+    labels:
+      service: payment-service
+
   - job_name: jaeger
     static_configs:
       - targets: ["jaeger:14269"]

@@ -440,6 +440,25 @@ async def lifespan(app: FastAPI):
     from agents.orchestrator import AgentOrchestrator
     from services.log_simulator import LogSimulator
     from listener.real_metrics import RealLogListener  # FIX #1
+    from listener.prometheus_scraper import PrometheusScraper
+    from tools.docker_client import DockerRemediator
+
+    async def _autonomous_detection_loop(orchestrator, scraper):
+        """Periodically check for anomalies in real metrics."""
+        logger.info("autonomous_detection_loop_started")
+        while True:
+            try:
+                # Consume metrics from the scraper's buffer
+                metrics = await scraper.buffer.read_batch(limit=20)
+                if metrics:
+                    # Trigger the pipeline — detection stage is first
+                    await orchestrator.run_full_pipeline(
+                        metrics=metrics,
+                        scenario="real_traffic"
+                    )
+            except Exception as e:
+                logger.error("autonomous_loop_iteration_failed", error=str(e))
+            await asyncio.sleep(5.0)
 
     knowledge = RAGEngine()
     await knowledge.initialize()
@@ -455,9 +474,12 @@ async def lifespan(app: FastAPI):
     sandbox = SandboxExecutor()
     await sandbox.initialize()
 
+    docker_remediator = DockerRemediator()
+
     orchestrator = AgentOrchestrator(
         knowledge_engine=knowledge,
         sandbox_executor=sandbox,
+        docker_remediator=docker_remediator,
     )
     await orchestrator.initialize()
 
@@ -474,6 +496,17 @@ async def lifespan(app: FastAPI):
         min_real_metrics=5,
     )
 
+    # Scrape real microservices from Prometheus
+    # In Docker: use http://prometheus:9090. Local: http://localhost:9090
+    prom_url = os.environ.get("PROMETHEUS_URL", "http://localhost:9090")
+    scraper = PrometheusScraper(prometheus_url=prom_url, scrape_interval=settings.metrics.metrics_export_interval)
+    app.state.prom_scraper = scraper
+    
+    # Start background tasks
+    asyncio.create_task(app.state.real_listener.start())
+    asyncio.create_task(app.state.prom_scraper.start())
+    asyncio.create_task(_autonomous_detection_loop(orchestrator, scraper))
+
     logger.info("api_ready",
                 telemetry="real_middleware",
                 tracing="embedded_in_orchestrator",
@@ -485,6 +518,8 @@ async def lifespan(app: FastAPI):
         await app.state.orchestrator.shutdown()
     if hasattr(app.state, "real_listener"):
         await app.state.real_listener.stop()
+    if hasattr(app.state, "prom_scraper"):
+        await app.state.prom_scraper.stop()
     logger.info("api_shutdown_complete")
 
 

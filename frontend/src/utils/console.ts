@@ -106,6 +106,8 @@ export interface SpanAttributes {
 }
 
 export interface Span {
+  id?: string;
+  span_id?: string;
   name: string;
   duration: number;
   status?: string;
@@ -169,6 +171,7 @@ export interface StageMeta {
 }
 
 export interface StageView extends StageMeta {
+  spanId: string;
   status: RuntimeStatus;
   durationMs: number;
   confidence: number;
@@ -382,6 +385,7 @@ export function buildStageViews(
 
     return {
       ...stage,
+      spanId: span?.span_id ?? span?.id ?? `span-${stage.key}`,
       status,
       durationMs: span?.duration ?? stage.fallbackDurationMs,
       confidence: computeConfidence(status, detail?.risk_score, index),
@@ -445,7 +449,7 @@ export function buildLogEntries(
       service: stage.service,
       message: stage.message,
       traceId: job?.job_id ?? undefined,
-      spanId: `span-${stage.key}`,
+      spanId: stage.spanId,
     };
   });
 
@@ -487,6 +491,7 @@ export async function fetchJson<T>(path: string) {
   }
 
   return response.json() as Promise<T>;
+}
 
 // ─── UI State ────────────────────────────────────────────────────────────────
 
@@ -513,4 +518,3 @@ export const useUiStore = create<UiState>((set) => ({
   activePanel: null,
   setActivePanel: (id) => set({ activePanel: id }),
 }));
-}

@@ -1,170 +1,239 @@
-import type { PipelineJobDetail } from "../utils/console";
-import {
-  type StageView,
-  clamp,
-  formatDuration,
-  formatPercent,
-  humanizeToken,
-} from "../utils/console";
+import { useMemo, useState, useRef, useEffect } from "react";
+import { Info, Clock, Activity, Target, ShieldCheck, Server, PanelRight } from "lucide-react";
+import { type StageView, type PipelineJobDetail, STAGES, humanizeToken, formatDuration } from "../utils/console";
 
 export interface PipelineCanvasProps {
   stages: StageView[];
   detail: PipelineJobDetail | null;
   selectedStageIndex: number;
-  onSelectStage: (index: number) => void;
+  onSelectStage: (index: number | null) => void;
   selectedSpanId: string | null;
   onSelectSpan: (spanId: string | null) => void;
+  isDiagOpen: boolean;
+  onToggleDiag: () => void;
 }
 
-export default function PipelineCanvas({ stages, detail, selectedStageIndex, onSelectStage, selectedSpanId, onSelectSpan }: PipelineCanvasProps) {
-  const pipelineStart = Math.min(...stages.map(s => s.startMs));
-  const pipelineEnd = Math.max(...stages.map(s => s.endMs));
-  const totalDuration = Math.max(pipelineEnd - pipelineStart, 1);
-  const tickCount = 5;
-  const tickStep = totalDuration / tickCount;
-  const axisTicks = Array.from({ length: tickCount + 1 }, (_, index) => ({
-    label: formatDuration(Math.round(index * tickStep)),
-    pos: (index / tickCount) * 100,
-  }));
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-  const orderedStages = [...stages].sort((a, b) => a.startMs - b.startMs);
+function formatMs(ms: number) {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(2)}s`;
+}
 
+// ── Component ────────────────────────────────────────────────────────────────
+
+export default function PipelineCanvas({
+  stages,
+  detail,
+  selectedStageIndex,
+  onSelectStage,
+  selectedSpanId,
+  onSelectSpan,
+  isDiagOpen,
+  onToggleDiag,
+}: PipelineCanvasProps) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // ── Time math ──────────────────────────────────────────────────────────────
+  // We compute global pipeline bounds based on all stages
+  const { totalDuration, pipelineStart } = useMemo(() => {
+    if (!stages.length) return { totalDuration: 0, pipelineStart: 0 };
+    const start = Math.min(...stages.map(s => s.startMs));
+    const end   = Math.max(...stages.map(s => s.endMs));
+    return {
+      totalDuration: Math.max(end - start, 1), 
+      pipelineStart: start,
+    };
+  }, [stages]);
+
+  const overallStatus = detail?.status || "standby";
+
+  // ── Tooltip positioning ───────────────────────────────────────────────────
+  const tooltipStyle = useMemo(() => {
+    const margin = 20;
+    const tooltipWidth = 220;
+    const tooltipHeight = 160;
+    let x = mousePos.x + 15;
+    let y = mousePos.y + 15;
+
+    if (x + tooltipWidth > window.innerWidth - margin) x = mousePos.x - tooltipWidth - 15;
+    if (y + tooltipHeight > window.innerHeight - margin) y = mousePos.y - tooltipHeight - 15;
+
+    return { left: x, top: y };
+  }, [mousePos]);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <section className="pipeline-panel flex flex-col h-full bg-slate-900/40 rounded-lg border border-slate-800 p-4">
-      <div className="panel-header pipeline-header mb-6 relative">
-        <div className="flex flex-row justify-between items-end w-full">
-          <div>
-            <p className="panel-kicker text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1">PIPELINE EXECUTION</p>
-            <h2 className="text-xl font-medium text-slate-100">Trace Timeline</h2>
-          </div>
-          <div className="pipeline-summary-strip flex gap-4 text-sm text-slate-400 font-mono">
-            <span>{humanizeToken(detail?.status, "standby")}</span>
-            <span>{formatDuration((detail?.duration_seconds ?? 0) * 1000)}</span>
-            <span>{detail?.service ?? "orchestrator"}</span>
-          </div>
+    <section className="pipeline-panel">
+      {/* Header */}
+      <div className="pipeline-header-bar">
+        <div>
+          <p className="panel-kicker">Pipeline Execution</p>
+          <p style={{ fontSize: 12, fontWeight: 500, color: "var(--text-dim)", marginTop: 3 }}>Trace Timeline</p>
+        </div>
+        <div className="pipeline-meta-strip">
+          <span className={`pipeline-status-${overallStatus === "completed" ? "ok" : overallStatus === "failed" ? "err" : "live"}`}>
+            {humanizeToken(overallStatus, "standby")}
+          </span>
+          {detail && (
+            <>
+              <span>trace_{detail.job_id.slice(0, 8)}</span>
+              <span>{formatDuration(totalDuration)}</span>
+            </>
+          )}
+          <button 
+            type="button"
+            className={`diag-toggle-btn ${isDiagOpen ? "active" : ""}`}
+            onClick={onToggleDiag}
+            title="Toggle Technical Diagnostics"
+          >
+            <PanelRight size={14} />
+          </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
-        {/* TRACE TABLE HEADER */}
-        <div className="grid grid-cols-[140px_80px_80px_80px_90px_1fr] gap-4 pb-2 border-b border-slate-700/50 text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2 font-mono px-2">
-          <div>Stage Name</div>
-          <div>Start</div>
-          <div>End</div>
-          <div>Duration</div>
-          <div>Confidence</div>
-          <div className="pl-2 border-l border-slate-700/50">Timeline</div>
-        </div>
-
-        {/* TIMELINE AXIS */}
-        <div className="grid grid-cols-[140px_80px_80px_80px_90px_1fr] gap-4 items-center px-2 py-1 mb-1 text-[10px] text-slate-500 font-mono">
-          <div />
-          <div />
-          <div />
-          <div />
-          <div />
-          <div className="relative pl-2 border-l border-transparent h-4">
-            {axisTicks.map((tick, i) => (
-              <span
-                key={i}
-                className="absolute transform -translate-x-1/2 whitespace-nowrap first:translate-x-0 last:translate-x-[-100%]"
-                style={{ left: `${tick.pos}%` }}
-              >
-                {tick.label}
-              </span>
-            ))}
+      <div className="pipeline-body" ref={containerRef}>
+        <div className="pipeline-timeline-inner">
+          {/* Axis Row */}
+          <div className="trace-col-layout trace-axis-row">
+            <div /> <div /> <div /> <div /> <div />
+            <div style={{ height: 20 }}>
+              <div className="trace-axis-tick" style={{ left: "0%" }}>0ms</div>
+              <div className="trace-axis-tick" style={{ left: "25%" }}>{formatDuration(totalDuration * 0.25)}</div>
+              <div className="trace-axis-tick" style={{ left: "50%" }}>{formatDuration(totalDuration * 0.5)}</div>
+              <div className="trace-axis-tick" style={{ left: "75%" }}>{formatDuration(totalDuration * 0.75)}</div>
+              <div className="trace-axis-tick" style={{ left: "100%" }}>{formatDuration(totalDuration)}</div>
+            </div>
           </div>
-        </div>
 
-        {/* TRACE TABLE BODY */}
-        <div className="flex flex-col gap-[2px] relative mt-1">
-          {orderedStages.map((stage, index) => {
-            const originalIndex = stages.findIndex(s => s.key === stage.key);
-            const widthPercentage = ((stage.endMs - stage.startMs) / totalDuration) * 100;
-            const leftPercentage = ((stage.startMs - pipelineStart) / totalDuration) * 100;
-            const width = clamp(widthPercentage, 0.5, 100);
-            const left = clamp(leftPercentage, 0, 99.5);
+          {/* Headings */}
+          <div className="trace-col-layout trace-table-head">
+            <div>Stage</div>
+            <div>Start</div>
+            <div>End</div>
+            <div>Dur.</div>
+            <div>Conf.</div>
+            <div>Timeline</div>
+          </div>
 
-            const Icon = stage.icon;
-            const isRunning = stage.status === "running";
-            const isFailed = stage.status === "failed" || stage.status === "rolled_back";
-            const stageSpanId = `span-${stage.key}`;
-            const isSpanHighlighted = selectedSpanId !== null && selectedSpanId === stageSpanId;
-            const hasSpanSelection = selectedSpanId !== null;
-            const isDimmed = hasSpanSelection && !isSpanHighlighted;
+          {/* Stages */}
+          <div style={{ position: "relative" }}>
+            {stages.map((stage, idx) => {
+              const isSelected = selectedStageIndex === idx;
+              const isDimmed = selectedStageIndex !== -1 && !isSelected;
+              const st = stage.startMs;
+              const en = stage.endMs;
 
-            const rowBg = selectedStageIndex === originalIndex ? "bg-slate-800/80 ring-1 ring-slate-700" : "hover:bg-slate-800/40";
-            const barPulseClass = isRunning ? "trace-running" : "";
+              // Absolute math for offset and width
+              const offsetPct = ((st - pipelineStart) / totalDuration) * 100;
+              const widthPct  = Math.max(((en - st) / totalDuration) * 100, 0.5);
 
-            return (
-              <button
-                key={stage.key}
-                type="button"
-                onClick={() => {
-                  onSelectStage(originalIndex);
-                  onSelectSpan(isSpanHighlighted ? null : stageSpanId);
-                }}
-                className={`grid grid-cols-[140px_80px_80px_80px_90px_1fr] gap-4 items-center w-full py-2 px-2 rounded transition-colors text-left text-sm relative group ${rowBg}`}
-              >
-                <div className="flex items-center gap-2 font-medium overflow-hidden whitespace-nowrap text-ellipsis" style={{ color: stage.color }}>
-                  <Icon size={14} className="shrink-0" />
-                  {stage.label}
-                </div>
+              // Connector line from previous stage end to this stage start
+              let connector = null;
+              if (idx > 0) {
+                const prev = stages[idx-1];
+                const prevEnd = prev.endMs;
+                const prevX = ((prevEnd - pipelineStart) / totalDuration) * 100;
+                const thisX = offsetPct;
 
-                <div className="text-slate-400 font-mono text-xs whitespace-nowrap font-medium">
-                  {formatDuration(stage.startMs)}
-                </div>
-                <div className="text-slate-400 font-mono text-xs whitespace-nowrap font-medium">
-                  {formatDuration(stage.endMs)}
-                </div>
-                <div className="text-slate-300 font-mono text-xs">
-                  {formatDuration(stage.durationMs)}
-                </div>
-                <div className="text-slate-300 font-mono text-xs">
-                  {formatPercent(stage.confidence)}
-                </div>
+                // Basic vertical + horizontal step connector
+                // Vertical part: current row center up to previous row center
+                // Horizontal part: prev end to current start
+                connector = (
+                  <div
+                    className="trace-stage-connector"
+                    style={{
+                      left: `${Math.min(prevX, thisX)}%`,
+                      width: `${Math.abs(thisX - prevX)}%`,
+                      top: "-14px", // half of row height (28px) 
+                      height: "14px",
+                    }}
+                  >
+                    <div className="trace-stage-connector-arrow" />
+                  </div>
+                );
+              }
 
-                {/* Timeline Horizontal Bar */}
-                <div className="relative h-6 w-full flex items-center border-l border-slate-700/50 pl-2">
-                  {/* Vertical Connector (except for last element) */}
-                  {index < orderedStages.length - 1 && (
-                    <div className="absolute left-[-1px] top-6 bottom-[-24px] w-[1px] bg-slate-600/30 z-0" />
-                  )}
-
-                  {/* Grid Lines Context */}
-                  <div className="pointer-events-none absolute inset-0 w-full h-full opacity-10 flex border-l border-transparent">
-                    <div className="border-r border-slate-500 w-1/4 h-full" />
-                    <div className="border-r border-slate-500 w-1/4 h-full" />
-                    <div className="border-r border-slate-500 w-1/4 h-full" />
-                    <div className="border-r border-slate-500 w-1/4 h-full" />
+              return (
+                <button
+                  key={stage.key}
+                  type="button"
+                  className={`span-row trace-col-layout ${isSelected ? "is-selected" : ""} ${isDimmed ? "is-dimmed" : ""}`}
+                  onClick={() => onSelectStage(isSelected ? null : idx)}
+                  onMouseMove={(e) => {
+                    setMousePos({ x: e.clientX, y: e.clientY });
+                    setHoveredIdx(idx);
+                  }}
+                  onMouseLeave={() => setHoveredIdx(null)}
+                >
+                  {/* Stage Name */}
+                  <div className="span-name">
+                    {idx === selectedStageIndex ? (
+                      <Activity size={12} className="pipeline-status-live" />
+                    ) : (
+                      <Server size={12} style={{ color: "var(--text-faint)" }} />
+                    )}
+                    {stage.label}
                   </div>
 
-                  {/* The execution block (utilizes transform for perf) */}
-                  <div
-                    className="absolute inset-y-0 flex items-center w-full"
-                    style={{ transform: `translateX(${left}%)` }}
-                  >
+                  {/* Timing fields */}
+                  <div className="span-field">{formatDuration(st - pipelineStart)}</div>
+                  <div className="span-field">{formatDuration(en - pipelineStart)}</div>
+                  <div className="span-field hi">{formatDuration(en - st)}</div>
+                  <div className="span-field">{Math.round((stage.confidence || 0.9) * 100)}%</div>
+
+                  {/* Timeline Axis */}
+                  <div className="span-timeline-cell">
+                    {connector}
+                    <div className="span-grid-guides">
+                      <div /><div /><div /><div />
+                    </div>
                     <div
-                      className={`h-2.5 rounded-sm transition-colors duration-300 ${barPulseClass}`}
-                      title={`${stage.label}\n${formatDuration(stage.startMs)} \u2192 ${formatDuration(stage.endMs)}\n${stage.durationMs}ms\nconfidence ${formatPercent(stage.confidence)}`}
+                      className="span-bar"
                       style={{
-                        width: `${width}%`,
-                        background: isFailed ? "var(--state-error, #ef4444)" : stage.color,
-                        boxShadow: isSpanHighlighted
-                          ? `0 0 0 1px color-mix(in srgb, ${stage.color} 85%, white), 0 0 16px color-mix(in srgb, ${stage.color} 55%, transparent)`
-                          : isRunning
-                            ? `0 0 10px ${stage.color}, 0 0 20px ${stage.color}`
-                            : "none",
-                        opacity: isDimmed ? 0.35 : stage.status === "pending" ? 0.25 : 1
+                        left: `${offsetPct}%`,
+                        width: `${widthPct}%`,
+                        backgroundColor: stage.color,
+                        boxShadow: isSelected ? `0 0 8px ${stage.color}` : "none",
                       }}
                     />
                   </div>
-                </div>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
+
+      {/* Hover Tooltip */}
+      {hoveredIdx !== null && stages[hoveredIdx] && (
+        <div className="span-tooltip" style={tooltipStyle}>
+          <div className="span-tooltip-header">{stages[hoveredIdx].label}</div>
+          <div className="span-tooltip-row">
+            <span>Service</span>
+            <span>{stages[hoveredIdx].service || "orchestrator"}</span>
+          </div>
+          <div className="span-tooltip-row">
+            <span>Duration</span>
+            <span>{formatDuration(stages[hoveredIdx].endMs - stages[hoveredIdx].startMs)}</span>
+          </div>
+          <div className="span-tooltip-row">
+            <span>Confidence</span>
+            <span>{Math.round((stages[hoveredIdx].confidence || 0) * 100)}%</span>
+          </div>
+          <div className="span-tooltip-row">
+            <span>Status</span>
+            <span style={{ color: stages[hoveredIdx].status === "failed" ? "var(--err)" : "var(--ok)" }}>
+              {stages[hoveredIdx].status}
+            </span>
+          </div>
+          <div className="span-tooltip-trace">
+            span: {detail?.job_id?.slice(0, 12)}_stage_{stages[hoveredIdx].key}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

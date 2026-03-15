@@ -204,7 +204,7 @@ class AgentOrchestrator:
 
     MAX_HISTORY_SIZE = 500
 
-    def __init__(self, knowledge_engine=None, sandbox_executor=None):
+    def __init__(self, knowledge_engine=None, sandbox_executor=None, docker_remediator=None):
         self._settings = get_settings()
         self._knowledge_engine = knowledge_engine
         self._sandbox_executor = sandbox_executor
@@ -213,7 +213,7 @@ class AgentOrchestrator:
         self.diagnosis_agent = DiagnosisAgent(knowledge_engine=knowledge_engine)
         self.remediation_agent = RemediationAgent(knowledge_engine=knowledge_engine)
         self.validation_agent = ValidationAgent(sandbox_executor=sandbox_executor)
-        self.deployment_agent = DeploymentAgent()
+        self.deployment_agent = DeploymentAgent(docker_remediator=docker_remediator)
 
         # ── FIX #3: Locks for all shared mutable state ────────────────
         self._history_lock = asyncio.Lock()

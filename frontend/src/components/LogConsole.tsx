@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { Search } from "lucide-react";
 import {
   type LogEntry,
-  SEVERITY_GLYPH,
   STAGES,
   type Severity,
   type StageKey,
@@ -18,6 +17,8 @@ export interface LogConsoleProps {
   selectedSpanId: string | null;
 }
 
+// ─── SSE payload shape ────────────────────────────────────────────────────────
+
 interface StreamLogPayload {
   id?: string;
   timestamp?: string;
@@ -29,186 +30,270 @@ interface StreamLogPayload {
   span_id?: string;
 }
 
-function normalizeSeverity(value?: string): Severity {
-  if (value === "warning" || value === "error" || value === "success") {
-    return value;
-  }
+// ─── Constants ────────────────────────────────────────────────────────────────
 
+const LOG_CAP          = 300;
+const INITIAL_BACKOFF  = 1_000;
+const MAX_BACKOFF      = 30_000;
+const FLUSH_INTERVAL   = 100;
+
+// Severity display config
+const SEV_CONFIG: Record<Severity, { token: string; tokenCls: string }> = {
+  info:    { token: "INF", tokenCls: "sev-token-info"    },
+  warning: { token: "WRN", tokenCls: "sev-token-warning" },
+  error:   { token: "ERR", tokenCls: "sev-token-error"   },
+  success: { token: "OK ", tokenCls: "sev-token-success" },
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function normalizeSeverity(value?: string): Severity {
+  if (value === "warning" || value === "error" || value === "success") return value;
   return "info";
 }
 
 function parseStreamLog(raw: string): LogEntry | null {
   let parsed: StreamLogPayload;
-
-  try {
-    parsed = JSON.parse(raw) as StreamLogPayload;
-  } catch {
-    return null;
-  }
-
-  const stage = normalizeStageKey(parsed.stage) ?? "detection";
+  try { parsed = JSON.parse(raw) as StreamLogPayload; }
+  catch { return null; }
+  const stage     = normalizeStageKey(parsed.stage) ?? "detection";
   const timestamp = formatTimestamp(parsed.timestamp);
-
   return {
-    id: parsed.id ?? `${timestamp}-${stage}-${Math.random().toString(36).slice(2, 8)}`,
+    id:        parsed.id ?? `${timestamp}-${stage}-${Math.random().toString(36).slice(2, 8)}`,
     timestamp,
-    severity: normalizeSeverity(parsed.severity),
-    stage: stage as StageKey,
-    service: parsed.service ?? "orchestrator",
-    message: parsed.message ?? "stream event",
-    traceId: parsed.trace_id,
-    spanId: parsed.span_id ?? `span-${stage}`,
+    severity:  normalizeSeverity(parsed.severity),
+    stage:     stage as StageKey,
+    service:   parsed.service ?? "orchestrator",
+    message:   parsed.message ?? "stream event",
+    traceId:   parsed.trace_id,
+    spanId:    parsed.span_id ?? `span-${stage}`,
   };
 }
 
-export default function LogConsole({ logs, selectedStageIndex, onSelectStage, onSelectSpan, selectedSpanId }: LogConsoleProps) {
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export default function LogConsole({
+  logs,
+  selectedStageIndex,
+  onSelectStage: _onSelectStage,
+  onSelectSpan,
+  selectedSpanId,
+}: LogConsoleProps) {
+  // ── State ──────────────────────────────────────────────────────────────────
   const [streamLogs, setStreamLogs] = useState<LogEntry[]>([]);
-  const bodyRef = useRef<HTMLDivElement | null>(null);
-  const sourceRef = useRef<EventSource | null>(null);
-  const reconnectTimeoutRef = useRef<number | null>(null);
-  const seenIdsRef = useRef<Map<string, number>>(new Map());
-  const pendingLogsRef = useRef<LogEntry[]>([]);
-  const flushIntervalRef = useRef<number | null>(null);
-  const shouldStickToBottomRef = useRef(true);
+  const [search, setSearch]         = useState("");
+  const [sevFilter, setSevFilter]   = useState<Severity | null>(null);
+  const [focusedIdx, setFocusedIdx] = useState<number>(-1);
+  const [pinned, setPinned]         = useState(true);
 
-  const isNearBottom = (element: HTMLDivElement) => {
-    return element.scrollHeight - element.scrollTop - element.clientHeight < 20;
-  };
+  // ── Refs ───────────────────────────────────────────────────────────────────
+  const pendingRef  = useRef<LogEntry[]>([]);
+  const sourceRef   = useRef<EventSource | null>(null);
+  const bodyRef     = useRef<HTMLDivElement>(null);
+  const searchRef   = useRef<HTMLInputElement>(null);
+  const rowRefs     = useRef<(HTMLButtonElement | null)[]>([]);
 
+  // ── SSE with reconnect backoff ─────────────────────────────────────────────
   useEffect(() => {
-    let disposed = false;
+    let cancelled = false;
+    let backoff   = INITIAL_BACKOFF;
+    let retryTo: ReturnType<typeof setTimeout> | null = null;
+    let flushIv: ReturnType<typeof setInterval> | null = null;
 
-    const connect = () => {
-      if (disposed) {
-        return;
-      }
+    function connect() {
+      if (cancelled) return;
+      if (sourceRef.current) { sourceRef.current.close(); sourceRef.current = null; }
 
-      if (sourceRef.current) {
-        return;
-      }
+      const src = new EventSource("/api/v1/log-stream");
+      sourceRef.current = src;
 
-      const source = new EventSource("/api/v1/log-stream");
-      sourceRef.current = source;
-
-      source.onmessage = (event) => {
-        const next = parseStreamLog(event.data);
-        if (!next) return;
-
-        const now = Date.now();
-
-        // Prevent duplicate logs in the sliding window
-        if (seenIdsRef.current.has(next.id)) return;
-
-        seenIdsRef.current.set(next.id, now);
-        pendingLogsRef.current.push(next);
+      src.onopen    = () => { backoff = INITIAL_BACKOFF; };
+      src.onmessage = (e: MessageEvent) => {
+        const next = parseStreamLog(e.data as string);
+        if (next) pendingRef.current.push(next);
       };
-
-      // Sliding window cleanup via flush interval later
-      source.onerror = () => {
-        source.close();
-        sourceRef.current = null;
-
-        if (disposed) {
-          return;
+      src.onerror   = () => {
+        src.close();
+        if (sourceRef.current === src) sourceRef.current = null;
+        if (!cancelled) {
+          retryTo = setTimeout(() => { backoff = Math.min(backoff * 2, MAX_BACKOFF); connect(); }, backoff);
         }
-
-        if (reconnectTimeoutRef.current !== null) {
-          window.clearTimeout(reconnectTimeoutRef.current);
-        }
-
-        reconnectTimeoutRef.current = window.setTimeout(() => {
-          reconnectTimeoutRef.current = null;
-          connect();
-        }, 3000);
       };
-    };
+    }
+
+    flushIv = setInterval(() => {
+      if (!pendingRef.current.length) return;
+      const batch = pendingRef.current.splice(0);
+      setStreamLogs((prev) => {
+        const next = [...prev, ...batch];
+        return next.length > LOG_CAP ? next.slice(-LOG_CAP) : next;
+      });
+    }, FLUSH_INTERVAL);
 
     connect();
 
-    flushIntervalRef.current = window.setInterval(() => {
-      const now = Date.now();
-
-      // Periodic sliding window cleanup of seenIds
-      if (seenIdsRef.current.size > 5000) {
-        for (const [id, seenAt] of seenIdsRef.current.entries()) {
-          if (now - seenAt > 30000) {
-            seenIdsRef.current.delete(id);
-          }
-        }
-      }
-
-      if (pendingLogsRef.current.length === 0) return;
-
-      const batch = pendingLogsRef.current.splice(0, pendingLogsRef.current.length);
-      setStreamLogs((previous) => {
-        const updated = [...previous, ...batch];
-        // Enforce max log history length
-        if (updated.length > 800) {
-          return updated.slice(-800);
-        }
-        return updated;
-      });
-    }, 150);
-
     return () => {
-      disposed = true;
-
-      if (sourceRef.current) {
-        sourceRef.current.close();
-        sourceRef.current = null;
-      }
-
-      if (reconnectTimeoutRef.current !== null) {
-        window.clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-
-      if (flushIntervalRef.current !== null) {
-        window.clearInterval(flushIntervalRef.current);
-        flushIntervalRef.current = null;
-      }
-
-      pendingLogsRef.current = [];
+      cancelled = true;
+      if (retryTo) clearTimeout(retryTo);
+      if (flushIv) clearInterval(flushIv);
+      if (sourceRef.current) { sourceRef.current.close(); sourceRef.current = null; }
+      pendingRef.current = [];
     };
   }, []);
 
-  const displayedLogs = useMemo(() => {
-    let source = streamLogs.length === 0 ? logs : streamLogs;
-    if (selectedSpanId) {
-      source = source.filter(log => log.spanId === selectedSpanId);
-    }
-    return source;
-  }, [logs, streamLogs, selectedSpanId]);
-
+  // ── Autoscroll ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    const body = bodyRef.current;
-    if (!body) {
-      return;
+    const el = bodyRef.current;
+    if (!el || !pinned) return;
+    el.scrollTop = el.scrollHeight;
+  }, [streamLogs, logs, pinned]);
+
+  const handleScroll = useCallback(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    setPinned(atBottom);
+  }, []);
+
+  const resumeScroll = useCallback(() => {
+    setPinned(true);
+    const el = bodyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  // ── Filtered display ───────────────────────────────────────────────────────
+  const displayedLogs = useMemo(() => {
+    let src = streamLogs.length === 0 ? logs : streamLogs;
+
+    // Span correlation filter
+    if (selectedSpanId) {
+      src = src.filter((l) => l.spanId === selectedSpanId);
     }
 
-    if (shouldStickToBottomRef.current) {
-      body.scrollTop = body.scrollHeight;
+    // Severity filter
+    if (sevFilter) {
+      src = src.filter((l) => l.severity === sevFilter);
     }
-  }, [displayedLogs]);
 
-  const handleBodyScroll = () => {
-    const body = bodyRef.current;
-    if (!body) {
-      return;
+    // Text search — matches service or message
+    const q = search.trim().toLowerCase();
+    if (q) {
+      // Support query syntax: "severity:error", "stage:diagnosis"
+      const sevMatch   = q.match(/^severity:(\w+)/);
+      const stageMatch = q.match(/^stage:(\w+)/);
+      if (sevMatch) {
+        const s = normalizeSeverity(sevMatch[1]);
+        src = src.filter((l) => l.severity === s);
+      } else if (stageMatch) {
+        const stageKey = normalizeStageKey(stageMatch[1]);
+        src = stageKey ? src.filter((l) => l.stage === stageKey) : src;
+      } else {
+        src = src.filter(
+          (l) =>
+            l.message.toLowerCase().includes(q) ||
+            l.service.toLowerCase().includes(q) ||
+            l.stage.toLowerCase().includes(q)
+        );
+      }
     }
-    shouldStickToBottomRef.current = isNearBottom(body);
-  };
+
+    return src;
+  }, [logs, streamLogs, selectedSpanId, sevFilter, search]);
+
+  // ── Keyboard navigation ────────────────────────────────────────────────────
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const len = displayedLogs.length;
+    if (!len) return;
+
+    if (e.key === "j" || e.key === "ArrowDown") {
+      e.preventDefault();
+      setFocusedIdx((i) => {
+        const next = Math.min(i + 1, len - 1);
+        rowRefs.current[next]?.scrollIntoView({ block: "nearest" });
+        return next;
+      });
+    } else if (e.key === "k" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setFocusedIdx((i) => {
+        const next = Math.max(i - 1, 0);
+        rowRefs.current[next]?.scrollIntoView({ block: "nearest" });
+        return next;
+      });
+    } else if (e.key === "g") {
+      e.preventDefault();
+      resumeScroll();
+      setFocusedIdx(len - 1);
+    } else if (e.key === "Enter" && focusedIdx >= 0) {
+      const log = displayedLogs[focusedIdx];
+      if (log) onSelectSpan(log.spanId ?? null);
+    } else if (e.key === "Escape") {
+      onSelectSpan(null);
+      setSevFilter(null);
+      setSearch("");
+      setFocusedIdx(-1);
+    }
+  }, [displayedLogs, focusedIdx, onSelectSpan, resumeScroll]);
+
+  // Global Ctrl+F → focus search
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  const SEVS: Severity[] = ["info", "warning", "error", "success"];
 
   return (
-    <section className="log-panel">
+    <section
+      className="log-panel"
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
+      style={{ outline: "none" }}
+    >
+      {/* Header */}
       <div className="panel-header">
         <div>
-          <p className="panel-kicker">TERMINAL LOG STREAM</p>
+          <p className="panel-kicker">Terminal Log Stream</p>
           <h2>Correlated execution feed</h2>
         </div>
-        <span className="panel-value">{displayedLogs.length.toString().padStart(2, "0")}</span>
+        <span className="panel-value">{String(displayedLogs.length).padStart(3, "0")}</span>
       </div>
 
+      {/* Filter / search controls */}
+      <div className="log-controls">
+        {/* Severity toggles */}
+        {SEVS.map((sev) => (
+          <button
+            key={sev}
+            type="button"
+            className={`log-filter-btn ${sevFilter === sev ? "active" : ""}`}
+            onClick={() => setSevFilter((prev) => (prev === sev ? null : sev))}
+          >
+            {SEV_CONFIG[sev].token}
+          </button>
+        ))}
+
+        {/* Search input */}
+        <div className="log-search-wrap">
+          <Search size={11} className="log-search-icon" />
+          <input
+            ref={searchRef}
+            className="log-search-input"
+            placeholder="search · severity:error · stage:diagnosis"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            spellCheck={false}
+          />
+        </div>
+      </div>
+
+      {/* Column header */}
       <div className="log-header">
         <span>timestamp</span>
         <span>sev</span>
@@ -217,30 +302,93 @@ export default function LogConsole({ logs, selectedStageIndex, onSelectStage, on
         <span>message</span>
       </div>
 
-      <div className="log-body" ref={bodyRef} onScroll={handleBodyScroll}>
-        {displayedLogs.map((log) => {
-          const stageIndex = STAGES.findIndex((stage) => stage.key === log.stage);
-          const selected = selectedStageIndex === stageIndex;
+      {/* Log rows */}
+      <div
+        className="log-body"
+        ref={bodyRef}
+        onScroll={handleScroll}
+      >
+        {displayedLogs.map((log, idx) => {
+          const stageIdx  = STAGES.findIndex((s) => s.key === log.stage);
+          const isActive  = selectedStageIndex === stageIdx;
+          const isFocused = focusedIdx === idx;
+          const sevCfg    = SEV_CONFIG[log.severity];
+          const stageColor = STAGES[stageIdx]?.color ?? "var(--text-faint)";
 
           return (
             <button
               key={log.id}
+              ref={(el) => { rowRefs.current[idx] = el; }}
               type="button"
-              className={`log-row ${selected ? "selected" : ""} severity-${log.severity}`}
+              className={[
+                "log-row",
+                `sev-${log.severity}`,
+                isActive  ? "is-active"  : "",
+                isFocused ? "is-focused" : "",
+              ].join(" ")}
               onClick={() => {
-                const nextSpanId = log.spanId ?? null;
-                onSelectStage(stageIndex);
-                onSelectSpan(selectedSpanId === nextSpanId ? null : nextSpanId);
+                setFocusedIdx(idx);
+                onSelectSpan(log.spanId ?? null);
               }}
             >
-              <span>{log.timestamp}</span>
-              <span>{SEVERITY_GLYPH[log.severity]}</span>
-              <span className="log-stage" style={{ color: STAGES[stageIndex]?.color }}>{log.stage}</span>
-              <span>{log.service}</span>
-              <span>{log.message}</span>
+              {/* Timestamp */}
+              <span style={{ color: "var(--text-faint)" }}>{log.timestamp}</span>
+
+              {/* Severity glyph */}
+              <span className={`log-sev ${sevCfg.tokenCls}`}>{sevCfg.token}</span>
+
+              {/* Stage */}
+              <span className="log-stage" style={{ color: stageColor }}>{log.stage}</span>
+
+              {/* Service */}
+              <span style={{ color: "var(--text-dim)" }}>{log.service}</span>
+
+              {/* Message */}
+              <span className="log-msg">{log.message}</span>
             </button>
           );
         })}
+
+        {displayedLogs.length === 0 && (
+          <div style={{
+            padding: "24px 16px",
+            textAlign: "center",
+            color: "var(--text-faint)",
+            fontSize: 11,
+            fontFamily: "var(--font-mono)",
+          }}>
+            {search || sevFilter ? "No logs match current filter." : "Awaiting log stream…"}
+          </div>
+        )}
+      </div>
+
+      {/* Keyboard hints + autoscroll resume */}
+      <div className="log-kbd-hints">
+        <span className="log-kbd-hint">
+          <kbd>j</kbd><kbd>k</kbd> navigate
+        </span>
+        <span className="log-kbd-hint">
+          <kbd>g</kbd> bottom
+        </span>
+        <span className="log-kbd-hint">
+          <kbd>↵</kbd> correlate
+        </span>
+        <span className="log-kbd-hint">
+          <kbd>Esc</kbd> clear
+        </span>
+        <span className="log-kbd-hint">
+          <kbd>⌘F</kbd> search
+        </span>
+
+        {!pinned && (
+          <button
+            type="button"
+            className="log-resume-pill"
+            onClick={resumeScroll}
+          >
+            ↓ resume
+          </button>
+        )}
       </div>
     </section>
   );

@@ -10,15 +10,12 @@ export default defineConfig({
     },
   },
   build: {
-    chunkSizeWarningLimit: 1000,
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
         manualChunks: {
           "vendor-react": ["react", "react-dom"],
-          "vendor-query": ["@tanstack/react-query"],
-          "vendor-motion": ["framer-motion"],
-          "vendor-charts": ["recharts"],
-          "vendor-three": ["three", "@react-three/fiber", "@react-three/drei"],
+          "vendor-lucide": ["lucide-react"],
         },
       },
     },
@@ -30,7 +27,8 @@ export default defineConfig({
       "/api": {
         target: "http://localhost:8080",
         changeOrigin: true,
-        ws: true,
+        // EventSource (SSE) requires ws: false — SSE is plain HTTP, not WebSocket.
+        ws: false,
       },
       "/health": { target: "http://localhost:8080", changeOrigin: true },
       "/ready": { target: "http://localhost:8080", changeOrigin: true },
@@ -43,7 +41,7 @@ export default defineConfig({
       "/api": {
         target: "http://localhost:8080",
         changeOrigin: true,
-        ws: true,
+        ws: false,
       },
       "/health": { target: "http://localhost:8080", changeOrigin: true },
       "/ready": { target: "http://localhost:8080", changeOrigin: true },

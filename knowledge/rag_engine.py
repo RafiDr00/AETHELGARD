@@ -98,8 +98,9 @@ class RAGEngine:
                         dims=self._embedding_dim)
             self._initialized = True
             return
-        except ImportError:
+        except (ImportError, Exception) as exc:
             logger.info("rag_sentence_transformers_unavailable",
+                        reason=str(exc),
                         note="Install: pip install sentence-transformers faiss-cpu")
 
         # Try TF-IDF (scikit-learn)
