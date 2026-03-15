@@ -161,7 +161,11 @@ export default function PipelineCanvas({
                   key={stage.key}
                   type="button"
                   className={`span-row trace-col-layout ${isSelected ? "is-selected" : ""} ${isDimmed ? "is-dimmed" : ""}`}
-                  onClick={() => onSelectStage(isSelected ? null : idx)}
+                  onClick={() => {
+                    const nextIdx = isSelected ? null : idx;
+                    onSelectStage(nextIdx);
+                    onSelectSpan(nextIdx !== null ? stage.spanId : null);
+                  }}
                   onMouseMove={(e) => {
                     setMousePos({ x: e.clientX, y: e.clientY });
                     setHoveredIdx(idx);
