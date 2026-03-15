@@ -104,13 +104,13 @@ async def require_api_key(x_api_key: Optional[str] = Security(_API_KEY_HEADER)) 
             endpoint="unknown"
         ).inc()
         logger.warning("api_auth_failed",
-                       provided_key=x_api_key[:8] + "..." if x_api_key else "none")
+                       provided_key=str(x_api_key)[:8] + "..." if x_api_key else "none")
         raise HTTPException(
             status_code=401,
             detail="Invalid or missing API key. Provide X-API-Key header.",
             headers={"WWW-Authenticate": "ApiKey"},
         )
-    return x_api_key
+    return str(x_api_key)
 
 
 # ─────────────────────────────────────────────
