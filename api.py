@@ -21,13 +21,14 @@ import os
 import re
 import sys
 import time
+from uuid import uuid4
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, FastAPI, HTTPException, BackgroundTasks, Depends, Security, Query, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
@@ -61,6 +62,10 @@ setup_logging(settings.log_level)
 logger = get_logger("aethelgard.api")
 
 START_TIME = time.time()
+OPS_CONSOLE_PATH = Path(__file__).parent / "ui" / "ops_console.html"
+OPS_CONSOLE_CSS_PATH = Path(__file__).parent / "ui" / "ops_console.css"
+OPS_CONSOLE_JS_PATH = Path(__file__).parent / "ui" / "ops_console.js"
+UI_ASSETS_DIR = Path(__file__).parent / "ui"
 
 # ─────────────────────────────────────────────
 # FIX #5 — API Key Authentication
@@ -104,13 +109,50 @@ async def require_api_key(x_api_key: Optional[str] = Security(_API_KEY_HEADER)) 
             endpoint="unknown"
         ).inc()
         logger.warning("api_auth_failed",
-                       provided_key=str(x_api_key)[:8] + "..." if x_api_key else "none")
+                       provided_key=x_api_key[:8] + "..." if x_api_key else "none")
         raise HTTPException(
             status_code=401,
             detail="Invalid or missing API key. Provide X-API-Key header.",
             headers={"WWW-Authenticate": "ApiKey"},
         )
-    return str(x_api_key)
+    return x_api_key
+
+
+def _resolve_websocket_api_key(websocket: WebSocket) -> Optional[str]:
+    """
+    Resolve API key for websocket auth from headers.
+    Preferred sources:
+      1) X-API-Key header
+      2) Authorization: Bearer <token>
+      3) Sec-WebSocket-Protocol value `api-key.<token>` (browser-compatible)
+
+    Optional legacy fallback:
+      - Query param `token` ONLY when AETHELGARD_ALLOW_LEGACY_WS_QUERY_TOKEN=true
+    """
+    header_key = (websocket.headers.get("x-api-key") or "").strip()
+    if header_key:
+        return header_key
+
+    auth_header = (websocket.headers.get("authorization") or "").strip()
+    if auth_header.lower().startswith("bearer "):
+        bearer = auth_header[7:].strip()
+        if bearer:
+            return bearer
+
+    subprotocols = websocket.headers.get("sec-websocket-protocol") or ""
+    for item in (p.strip() for p in subprotocols.split(",") if p.strip()):
+        if item.startswith("api-key."):
+            token = item[len("api-key."):].strip()
+            if token:
+                return token
+
+    if os.environ.get("AETHELGARD_ALLOW_LEGACY_WS_QUERY_TOKEN", "false").lower() == "true":
+        legacy = (websocket.query_params.get("token") or "").strip()
+        if legacy:
+            logger.warning("websocket_legacy_query_token_used")
+            return legacy
+
+    return None
 
 
 # ─────────────────────────────────────────────
@@ -164,9 +206,9 @@ class OperationsMetricsResponse(BaseModel):
     activePipelines: int
     dedupRatio: float
     failedHealth: int
-    pipelineLatencyMs: float
-    throughputEps: float
-    sandboxDurationSeconds: float
+    avgLatency: float
+    mttdSeconds: float
+    mttrSeconds: float
     autonomousResolutionRate: float
 
 
@@ -440,25 +482,6 @@ async def lifespan(app: FastAPI):
     from agents.orchestrator import AgentOrchestrator
     from services.log_simulator import LogSimulator
     from listener.real_metrics import RealLogListener  # FIX #1
-    from listener.prometheus_scraper import PrometheusScraper
-    from tools.docker_client import DockerRemediator
-
-    async def _autonomous_detection_loop(orchestrator, scraper):
-        """Periodically check for anomalies in real metrics."""
-        logger.info("autonomous_detection_loop_started")
-        while True:
-            try:
-                # Consume metrics from the scraper's buffer
-                metrics = await scraper.buffer.read_batch(limit=20)
-                if metrics:
-                    # Trigger the pipeline — detection stage is first
-                    await orchestrator.run_full_pipeline(
-                        metrics=metrics,
-                        scenario="real_traffic"
-                    )
-            except Exception as e:
-                logger.error("autonomous_loop_iteration_failed", error=str(e))
-            await asyncio.sleep(5.0)
 
     knowledge = RAGEngine()
     await knowledge.initialize()
@@ -474,14 +497,20 @@ async def lifespan(app: FastAPI):
     sandbox = SandboxExecutor()
     await sandbox.initialize()
 
-    docker_remediator = DockerRemediator()
-
     orchestrator = AgentOrchestrator(
         knowledge_engine=knowledge,
         sandbox_executor=sandbox,
-        docker_remediator=docker_remediator,
     )
-    await orchestrator.initialize()
+    async def _init_with_retry():
+        while True:
+            try:
+                await orchestrator.initialize()
+                return
+            except Exception:
+                await asyncio.sleep(1)
+
+    asyncio.create_task(_init_with_retry())
+    logger.info("ORCHESTRATOR_INSTANCE", id=id(orchestrator), stage="startup")
 
     app.state.orchestrator = orchestrator
     app.state.knowledge_engine = knowledge
@@ -496,17 +525,6 @@ async def lifespan(app: FastAPI):
         min_real_metrics=5,
     )
 
-    # Scrape real microservices from Prometheus
-    # In Docker: use http://prometheus:9090. Local: http://localhost:9090
-    prom_url = os.environ.get("PROMETHEUS_URL", "http://localhost:9090")
-    scraper = PrometheusScraper(prometheus_url=prom_url, scrape_interval=settings.metrics.metrics_export_interval)
-    app.state.prom_scraper = scraper
-    
-    # Start background tasks
-    asyncio.create_task(app.state.real_listener.start())
-    asyncio.create_task(app.state.prom_scraper.start())
-    asyncio.create_task(_autonomous_detection_loop(orchestrator, scraper))
-
     logger.info("api_ready",
                 telemetry="real_middleware",
                 tracing="embedded_in_orchestrator",
@@ -518,8 +536,6 @@ async def lifespan(app: FastAPI):
         await app.state.orchestrator.shutdown()
     if hasattr(app.state, "real_listener"):
         await app.state.real_listener.stop()
-    if hasattr(app.state, "prom_scraper"):
-        await app.state.prom_scraper.stop()
     logger.info("api_shutdown_complete")
 
 
@@ -549,7 +565,7 @@ _ALLOWED_ORIGINS = [
     o.strip()
     for o in os.environ.get(
         "AETHELGARD_CORS_ORIGINS",
-        "http://localhost:8501,http://localhost:3000,http://localhost:8000"
+        "http://localhost:8000"
     ).split(",")
     if o.strip()
 ]
@@ -561,6 +577,46 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "X-API-Key"],
 )
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+    request_id = request.headers.get("x-request-id") or str(uuid4())
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration = round((time.time() - start) * 1000, 2)
+        logger.exception(
+            "http_request_failed",
+            method=request.method,
+            path=request.url.path,
+            request_id=request_id,
+            duration_ms=duration,
+        )
+        raise
+    duration = round((time.time() - start) * 1000, 2)
+    logger.info(
+        "http_request",
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        duration_ms=duration,
+        request_id=request_id,
+    )
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception(
+        "unhandled_exception",
+        method=request.method,
+        path=request.url.path,
+        error=str(exc),
+    )
+    return JSONResponse(status_code=500, content={"error": "internal_error"})
 
 
 # ─────────────────────────────────────────────
@@ -581,6 +637,11 @@ def _get_state(key: str):
                 "Retry in a moment."
             ),
         )
+    if key == "orchestrator" and hasattr(obj, "ready") and not obj.ready:
+        raise HTTPException(
+            status_code=503,
+            detail="Service not ready — orchestrator restore is still in progress.",
+        )
     return obj
 
 
@@ -597,6 +658,43 @@ async def root():
         "docs": "/docs",
         "auth": "Write endpoints require X-API-Key header",
     }
+
+
+@app.get("/ops", include_in_schema=False)
+async def ops_console():
+    if not OPS_CONSOLE_PATH.exists():
+        raise HTTPException(status_code=404, detail="Ops console not found")
+    return FileResponse(OPS_CONSOLE_PATH)
+
+
+@app.get("/ui/ops_console.css", include_in_schema=False)
+async def ops_console_css():
+    if not OPS_CONSOLE_CSS_PATH.exists():
+        raise HTTPException(status_code=404, detail="Ops console stylesheet not found")
+    return FileResponse(OPS_CONSOLE_CSS_PATH, media_type="text/css")
+
+
+@app.get("/ui/ops_console.js", include_in_schema=False)
+async def ops_console_js():
+    if not OPS_CONSOLE_JS_PATH.exists():
+        raise HTTPException(status_code=404, detail="Ops console script not found")
+    return FileResponse(OPS_CONSOLE_JS_PATH, media_type="application/javascript")
+
+
+@app.get("/ui/{asset_path:path}", include_in_schema=False)
+async def ui_assets(asset_path: str):
+    candidate = (UI_ASSETS_DIR / asset_path).resolve()
+    root = UI_ASSETS_DIR.resolve()
+    if root not in candidate.parents or not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="UI asset not found")
+
+    media_type = None
+    if candidate.suffix == ".css":
+        media_type = "text/css"
+    elif candidate.suffix == ".js":
+        media_type = "application/javascript"
+
+    return FileResponse(candidate, media_type=media_type)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
@@ -630,9 +728,17 @@ async def prometheus_metrics():
     )
 
 
+@app.get("/metrics", tags=["Observability"], include_in_schema=False)
+async def prometheus_metrics_legacy():
+    """Backward-compatible alias for legacy scrapers expecting /metrics."""
+    return await prometheus_metrics()
+
+
 @app.get("/ready", tags=["Health"])
 async def readiness_check():
-    return {"ready": True, "timestamp": datetime.now(timezone.utc).isoformat()}
+    orchestrator = getattr(app.state, "orchestrator", None)
+    is_ready = bool(orchestrator is not None and getattr(orchestrator, "ready", False))
+    return {"ready": is_ready, "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -648,7 +754,7 @@ async def get_metrics():
 
 @v1_router.get("/metrics/ops", response_model=OperationsMetricsResponse, tags=["Observability"])
 async def get_operations_metrics():
-    """Frontend-oriented, pre-aggregated operations metrics."""
+    """Pre-aggregated operations metrics response."""
     orchestrator = _get_state("orchestrator")
     platform_metrics = orchestrator.get_metrics()
     metrics_text = generate_latest().decode("utf-8", errors="replace")
@@ -667,9 +773,9 @@ async def get_operations_metrics():
         activePipelines=int(active_pipelines),
         dedupRatio=round(dedup_ratio * 100, 2),
         failedHealth=failed_health,
-        pipelineLatencyMs=round(platform_metrics.avg_pipeline_latency_ms, 2),
-        throughputEps=round(platform_metrics.events_per_second, 2),
-        sandboxDurationSeconds=round(platform_metrics.avg_sandbox_duration_seconds, 2),
+        avgLatency=round(platform_metrics.avg_mttr_seconds * 1000, 2),
+        mttdSeconds=round(platform_metrics.avg_mttd_seconds, 3),
+        mttrSeconds=round(platform_metrics.avg_mttr_seconds, 3),
         autonomousResolutionRate=round(platform_metrics.autonomous_resolution_rate * 100, 2),
     )
 
@@ -791,7 +897,18 @@ async def run_pipeline(
     duration (~0.5–60s), making the API unresponsive to all other requests.
     """
     simulator = _get_state("simulator")
-    orchestrator = _get_state("orchestrator")
+    orchestrator = getattr(app.state, "orchestrator", None)
+    if orchestrator is None:
+        raise HTTPException(status_code=503, detail="Service unavailable — orchestrator is not initialized.")
+
+    max_inflight_jobs = max(1, int(os.environ.get("AETHELGARD_MAX_INFLIGHT_JOBS", "300")))
+    jobs_snapshot = await orchestrator.list_jobs(limit=1000)
+    inflight_jobs = sum(
+        1 for existing_job in jobs_snapshot
+        if existing_job.status in {"pending", "running", "awaiting_approval"}
+    )
+    if inflight_jobs >= max_inflight_jobs:
+        raise HTTPException(status_code=429, detail="Too many in-flight jobs. Retry later.")
 
     # Validate scenario exists before accepting job
     try:
@@ -814,7 +931,14 @@ async def run_pipeline(
         await orchestrator.run_job(job=job, metrics=anomaly_metrics)
 
     # FIX #7 — Fire and forget: endpoint returns 202 immediately
-    background_tasks.add_task(_run_with_baseline)
+    try:
+        task = asyncio.create_task(_run_with_baseline())
+    except Exception:
+        # scheduling failed → do not leave job hanging
+        async with orchestrator._jobs_lock:
+            job.status = "failed"
+            job.error = "execution_not_scheduled"
+        raise HTTPException(status_code=503, detail="Failed to schedule job execution")
 
     logger.info("pipeline_job_accepted", job_id=job.job_id, scenario=scenario)
 
@@ -846,7 +970,10 @@ async def run_pipeline_legacy(
 
 
 @v1_router.get("/pipeline/jobs/{job_id}", response_model=PipelineJobStatus, tags=["Pipeline"])
-async def get_pipeline_job(job_id: str):
+async def get_pipeline_job(
+    job_id: str,
+    _api_key: str = Depends(require_api_key),
+):
     """
     Get the status of a background pipeline job.
 
@@ -854,7 +981,9 @@ async def get_pipeline_job(job_id: str):
     When completed, includes full remediation results.
     """
     orchestrator = _get_state("orchestrator")
+    logger.info("ORCHESTRATOR_INSTANCE", id=id(orchestrator), stage="api")
     job = await orchestrator.get_job(job_id)
+    logger.info("API_LOOKUP", requested=job_id, exists=job is not None)
 
     if not job:
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
@@ -886,6 +1015,20 @@ async def get_pipeline_job(job_id: str):
         response.mttr_seconds = round(record.mttr_seconds, 2)
 
     return response
+
+
+@app.get(
+    "/pipeline/jobs/{job_id}",
+    response_model=PipelineJobStatus,
+    tags=["Pipeline"],
+    include_in_schema=False,
+)
+async def get_pipeline_job_legacy(
+    job_id: str,
+    _api_key: str = Depends(require_api_key),
+):
+    """Backward-compatible alias for clients still using /pipeline/jobs/{job_id}."""
+    return await get_pipeline_job(job_id=job_id, _api_key=_api_key)
 
 
 @v1_router.post("/pipeline/{job_id}/approve", status_code=202, tags=["Pipeline"])
@@ -930,7 +1073,10 @@ async def approve_deployment(
 
 
 @v1_router.get("/remediation/{job_id}/timeline", tags=["Pipeline"])
-async def remediation_timeline(job_id: str):
+async def remediation_timeline(
+    job_id: str,
+    _api_key: str = Depends(require_api_key),
+):
     orchestrator = _get_state("orchestrator")
     job = await orchestrator.get_job(job_id)
     if not job:
@@ -1008,8 +1154,9 @@ async def log_stream(
 
 
 @v1_router.websocket("/remediation/{job_id}/timeline/ws")
-async def remediation_timeline_ws(websocket: WebSocket, job_id: str, token: str = Query(...)):
-    if token not in VALID_API_KEYS:
+async def remediation_timeline_ws(websocket: WebSocket, job_id: str):
+    ws_api_key = _resolve_websocket_api_key(websocket)
+    if not ws_api_key or ws_api_key not in VALID_API_KEYS:
         await websocket.close(code=1008)
         return
     await websocket.accept()
@@ -1036,8 +1183,88 @@ async def remediation_timeline_ws(websocket: WebSocket, job_id: str, token: str 
         return
 
 
+@v1_router.websocket("/ops/ws")
+async def ops_ws(websocket: WebSocket, limit: int = Query(10, ge=1, le=100)):
+    ws_api_key = _resolve_websocket_api_key(websocket)
+    if not ws_api_key or ws_api_key not in VALID_API_KEYS:
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+    try:
+        while True:
+            orchestrator = getattr(app.state, "orchestrator", None)
+            if orchestrator is None:
+                await websocket.send_json({"error": "service_not_ready"})
+                await asyncio.sleep(1.0)
+                continue
+
+            rag_backend = None
+            if hasattr(app.state, "knowledge_engine"):
+                rag_backend = app.state.knowledge_engine.embedding_backend
+
+            health = {
+                "status": "healthy",
+                "version": settings.app_version,
+                "uptime_seconds": round(time.time() - START_TIME, 1),
+                "agents_active": 5,
+                "environment": settings.app_env.value,
+                "rag_backend": rag_backend,
+            }
+
+            platform_metrics = orchestrator.get_metrics()
+            metrics_text = generate_latest().decode("utf-8", errors="replace")
+
+            active_pipelines = _extract_prom_metric_value(metrics_text, "aethelgard_active_pipeline_jobs")
+            dedup_ratio = _extract_prom_metric_value(metrics_text, "aethelgard_dedup_suppression_ratio")
+
+            recent = orchestrator.get_recent_remediations(limit=200)
+            failed_health = sum(
+                1
+                for r in recent
+                if r.failure_stage and r.failure_stage.value == "deployment"
+            )
+
+            ops = {
+                "activePipelines": int(active_pipelines),
+                "dedupRatio": round(dedup_ratio * 100, 2),
+                "failedHealth": failed_health,
+                "avgLatency": round(platform_metrics.avg_mttr_seconds * 1000, 2),
+                "mttdSeconds": round(platform_metrics.avg_mttd_seconds, 3),
+                "mttrSeconds": round(platform_metrics.avg_mttr_seconds, 3),
+                "autonomousResolutionRate": round(platform_metrics.autonomous_resolution_rate * 100, 2),
+            }
+
+            jobs = await orchestrator.list_jobs(limit=limit)
+            jobs_payload = [j.to_dict() for j in jobs]
+
+            latest_timeline = None
+            latest_spans = None
+            if jobs:
+                latest_job = jobs[0]
+                latest_timeline = _build_timeline_payload(latest_job, latest_job.record)
+                latest_spans = _build_span_payload(latest_job, latest_job.record)
+
+            await websocket.send_json(
+                {
+                    "health": health,
+                    "ops": ops,
+                    "jobs": jobs_payload,
+                    "latest_timeline": latest_timeline,
+                    "latest_spans": latest_spans,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            await asyncio.sleep(2.0)
+    except WebSocketDisconnect:
+        return
+
+
 @v1_router.get("/pipeline/{job_id}/spans", tags=["Pipeline"])
-async def pipeline_spans(job_id: str):
+async def pipeline_spans(
+    job_id: str,
+    _api_key: str = Depends(require_api_key),
+):
     orchestrator = _get_state("orchestrator")
     job = await orchestrator.get_job(job_id)
     if not job:
@@ -1046,7 +1273,10 @@ async def pipeline_spans(job_id: str):
 
 
 @v1_router.get("/pipeline/jobs", tags=["Pipeline"])
-async def list_pipeline_jobs(limit: int = Query(20, ge=1, le=100)):
+async def list_pipeline_jobs(
+    limit: int = Query(20, ge=1, le=100),
+    _api_key: str = Depends(require_api_key),
+):
     """List recent pipeline jobs with their statuses."""
     orchestrator = _get_state("orchestrator")
     jobs = await orchestrator.list_jobs(limit=limit)
@@ -1054,6 +1284,15 @@ async def list_pipeline_jobs(limit: int = Query(20, ge=1, le=100)):
         "count": len(jobs),
         "jobs": [j.to_dict() for j in jobs],
     }
+
+
+@app.get("/pipeline/jobs", tags=["Pipeline"], include_in_schema=False)
+async def list_pipeline_jobs_legacy(
+    limit: int = Query(20, ge=1, le=100),
+    _api_key: str = Depends(require_api_key),
+):
+    """Backward-compatible alias for clients still using /pipeline/jobs."""
+    return await list_pipeline_jobs(limit=limit, _api_key=_api_key)
 
 
 # ── Mount versioned router ─────────────────────────────────────────────────────────────────────────

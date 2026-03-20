@@ -57,7 +57,6 @@ Aethelgard is a **multi-agent AIOps platform** that ingests telemetry from runni
 | **Real Metrics** | `listener/real_metrics.py` | Live host metrics via psutil |
 | **Telemetry** | `core/telemetry.py` | OpenTelemetry SDK; OTLP exporter; custom counters |
 | **Config** | `core/config.py` | Pydantic Settings; env-var binding; validation |
-| **Dashboard** | `dashboard/streamlit_app.py` | Streamlit real-time UI |
 
 ---
 
@@ -171,7 +170,6 @@ Production Host
 │
 ├── docker network: aethelgard-net (172.20.0.0/16)
 │   ├── aethelgard-api:8000      (exposed: 0.0.0.0:8000)
-│   ├── aethelgard-dashboard:8501 (exposed: 0.0.0.0:8501)
 │   ├── redis:6379               (exposed: 127.0.0.1:6379 only)
 │   ├── prometheus:9090          (exposed: 127.0.0.1:9090 only)
 │   └── grafana:3000             (exposed: 127.0.0.1:3000 only)

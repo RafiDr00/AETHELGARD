@@ -34,12 +34,15 @@ from __future__ import annotations
 import asyncio
 import collections
 import hashlib
+import json
+import os
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from opentelemetry import trace as otel_trace
+import redis.asyncio as aioredis
 
 from agents.detection_agent import DetectionAgent
 from agents.diagnosis_agent import DiagnosisAgent
@@ -185,6 +188,25 @@ class PipelineJob:
             "awaiting_approval": self.awaiting_approval,
         }
 
+    @classmethod
+    def from_persisted(cls, payload: Dict[str, Any]) -> "PipelineJob":
+        job = cls(
+            job_id=payload.get("job_id", f"job-{uuid.uuid4().hex[:12]}"),
+            scenario=payload.get("scenario", "unknown"),
+        )
+        job.status = payload.get("status", "pending")
+        job.started_at = payload.get("started_at")
+        job.finished_at = payload.get("finished_at")
+        job.error = payload.get("error")
+        job.anomaly_type = payload.get("anomaly_type")
+        job.patch_type = payload.get("patch_type")
+        job.deployed = bool(payload.get("deployed", False))
+        job.remediation_status = payload.get("remediation_status")
+        job.failure_stage = payload.get("failure_stage")
+        job.failure_reason = payload.get("failure_reason")
+        job.awaiting_approval = bool(payload.get("awaiting_approval", False))
+        return job
+
 
 class AgentOrchestrator:
     """
@@ -203,8 +225,13 @@ class AgentOrchestrator:
     """
 
     MAX_HISTORY_SIZE = 500
+    _REDIS_JOB_PREFIX = "aethelgard:job:"
+    _REDIS_JOBS_INDEX = "aethelgard:jobs:index"
+    _REDIS_PIPELINE_OUTCOMES = "aethelgard:pipeline:outcomes"
+    _REDIS_EVENTS_STREAM = "aethelgard:ops:events"
+    _REDIS_MAX_JOBS = 1000
 
-    def __init__(self, knowledge_engine=None, sandbox_executor=None, docker_remediator=None):
+    def __init__(self, knowledge_engine=None, sandbox_executor=None):
         self._settings = get_settings()
         self._knowledge_engine = knowledge_engine
         self._sandbox_executor = sandbox_executor
@@ -213,7 +240,7 @@ class AgentOrchestrator:
         self.diagnosis_agent = DiagnosisAgent(knowledge_engine=knowledge_engine)
         self.remediation_agent = RemediationAgent(knowledge_engine=knowledge_engine)
         self.validation_agent = ValidationAgent(sandbox_executor=sandbox_executor)
-        self.deployment_agent = DeploymentAgent(docker_remediator=docker_remediator)
+        self.deployment_agent = DeploymentAgent()
 
         # ── FIX #3: Locks for all shared mutable state ────────────────
         self._history_lock = asyncio.Lock()
@@ -243,10 +270,16 @@ class AgentOrchestrator:
         # O(1) running metrics totals
         self._total_mttd: float = 0.0
         self._total_mttr: float = 0.0
-        self._total_pipeline_latency_ms: float = 0.0
-        self._total_sandbox_duration_seconds: float = 0.0
         self._success_count: int = 0
         self._metrics = PlatformMetrics()
+        self._redis: Optional[aioredis.Redis] = None
+        self.ready: bool = False
+        max_concurrent_jobs = max(1, int(os.environ.get("AETHELGARD_MAX_CONCURRENT_JOBS", "16")))
+        self._job_execution_semaphore = asyncio.Semaphore(max_concurrent_jobs)
+        self._job_execution_timeout_seconds = max(
+            1.0,
+            float(os.environ.get("AETHELGARD_JOB_TIMEOUT_SECONDS", str(self._settings.agents.agent_timeout))),
+        )
 
     # ─────────────────────────────────────────────────────────────
     # Lifecycle
@@ -254,11 +287,54 @@ class AgentOrchestrator:
 
     async def initialize(self) -> None:
         logger.info("orchestrator_initializing")
+        self.ready = False
+        self._jobs.clear()
+        self._pipeline_outcomes.clear()
+        self._reset_runtime_state()
         await self.detection_agent.initialize()
         await self.diagnosis_agent.initialize()
         await self.remediation_agent.initialize()
         await self.validation_agent.initialize()
         await self.deployment_agent.initialize()
+        await self._init_redis_persistence()
+        await self._restore_persisted_jobs()
+        if self._redis:
+            redis_job_ids = await self._redis.lrange(self._REDIS_JOBS_INDEX, 0, -1)
+            normalized_redis_job_ids: Set[str] = set()
+            duplicate_redis_job_ids: Set[str] = set()
+            for raw_job_id in redis_job_ids:
+                if isinstance(raw_job_id, bytes):
+                    try:
+                        normalized_job_id = raw_job_id.decode("utf-8")
+                    except UnicodeDecodeError as e:
+                        raise RuntimeError(
+                            f"Invalid Redis job_id encoding: error={str(e)}"
+                        ) from e
+                elif isinstance(raw_job_id, str):
+                    normalized_job_id = raw_job_id
+                else:
+                    raise RuntimeError(
+                        f"Invalid Redis job_id type: type={type(raw_job_id).__name__}"
+                    )
+
+                if normalized_job_id in normalized_redis_job_ids:
+                    duplicate_redis_job_ids.add(normalized_job_id)
+                normalized_redis_job_ids.add(normalized_job_id)
+
+            if duplicate_redis_job_ids:
+                raise RuntimeError(
+                    f"Duplicate Redis job IDs detected: duplicates={sorted(duplicate_redis_job_ids)}"
+                )
+            async with self._jobs_lock:
+                in_memory_job_ids = set(self._jobs.keys())
+            if normalized_redis_job_ids != in_memory_job_ids:
+                missing_in_memory = sorted(normalized_redis_job_ids - in_memory_job_ids)
+                missing_in_redis = sorted(in_memory_job_ids - normalized_redis_job_ids)
+                raise RuntimeError(
+                    f"Mismatch between Redis and in-memory jobs: missing_in_memory={missing_in_memory} missing_in_redis={missing_in_redis}"
+                )
+        self._assert_state_model()
+        self.ready = True
         logger.info("orchestrator_ready", agents=5,
                     mode="explicit_pipeline_instrumented",
                     learning="enabled",
@@ -273,6 +349,14 @@ class AgentOrchestrator:
             self.deployment_agent,
         ]:
             await agent.shutdown()
+        if self._redis:
+            try:
+                await self._redis.close()
+            except Exception:
+                try:
+                    await self._redis.aclose()
+                except Exception:
+                    logger.warning("orchestrator_redis_close_failed")
 
     async def approve_deployment(self, job_id: str) -> Optional[RemediationRecord]:
         """
@@ -327,6 +411,19 @@ class AgentOrchestrator:
                     job.remediation_status = "success" if deployment and deployment.status == "deployed" else "failed"
                     if deployment:
                         job.set_approval_context(None)
+                    persisted_job = job
+                else:
+                    persisted_job = None
+
+            if persisted_job:
+                await self._persist_job_state(persisted_job)
+                await self._persist_runtime_event(
+                    event_type="deployment_approved",
+                    job_id=job_id,
+                    scenario=persisted_job.scenario,
+                    status=persisted_job.status,
+                    details={"remediation_status": persisted_job.remediation_status},
+                )
 
             logger.info("deployment_post_approval_complete",
                         job_id=job_id,
@@ -343,7 +440,376 @@ class AgentOrchestrator:
                     job = self._jobs[job_id]
                     job.error = str(e)
                     job.remediation_status = "failed"
+                    persisted_job = job
+                else:
+                    persisted_job = None
+            if persisted_job:
+                await self._persist_job_state(persisted_job)
+                await self._persist_runtime_event(
+                    event_type="deployment_approval_failed",
+                    job_id=job_id,
+                    scenario=persisted_job.scenario,
+                    status=persisted_job.status,
+                    details={"error": str(e)},
+                )
             return None
+
+    async def _init_redis_persistence(self) -> None:
+        try:
+            self._redis = aioredis.Redis(
+                host=self._settings.redis.host,
+                port=self._settings.redis.port,
+                db=self._settings.redis.db,
+                password=self._settings.redis.password,
+                decode_responses=True,
+                socket_timeout=self._settings.redis.socket_timeout,
+                retry_on_timeout=self._settings.redis.retry_on_timeout,
+            )
+            await self._redis.ping()
+            logger.info(
+                "orchestrator_redis_persistence_enabled",
+                host=self._settings.redis.host,
+                port=self._settings.redis.port,
+                db=self._settings.redis.db,
+            )
+        except Exception as e:
+            self._redis = None
+            if self._settings.is_production:
+                raise RuntimeError(
+                    "Redis is required in production for durable pipeline persistence"
+                ) from e
+            logger.warning(
+                "orchestrator_redis_persistence_disabled",
+                error=str(e),
+                mode="dev",
+                note="Running without persistence (DEV MODE)",
+            )
+
+    def _serialize_job(self, job: PipelineJob) -> Dict[str, Any]:
+        return {
+            "job_id": job.job_id,
+            "scenario": job.scenario,
+            "status": job.status,
+            "started_at": job.started_at,
+            "finished_at": job.finished_at,
+            "error": job.error,
+            "anomaly_type": job.anomaly_type,
+            "patch_type": job.patch_type,
+            "deployed": job.deployed,
+            "remediation_status": job.remediation_status,
+            "failure_stage": job.failure_stage,
+            "failure_reason": job.failure_reason,
+            "awaiting_approval": job.awaiting_approval,
+            "updated_at": time.time(),
+        }
+
+    def _reset_runtime_state(self) -> None:
+        self._remediation_history = []
+        self._total_mttd = 0.0
+        self._total_mttr = 0.0
+        self._success_count = 0
+        self._metrics = PlatformMetrics()
+        self._active_fingerprints.clear()
+        self._recent_fingerprints.clear()
+        self._service_locks.clear()
+
+    def _assert_state_model(self) -> None:
+        assert isinstance(self._jobs, dict)
+        assert isinstance(self._pipeline_outcomes, dict)
+        assert isinstance(self._remediation_history, list)
+        assert self._metrics is not None
+        assert isinstance(self._active_fingerprints, set)
+        assert isinstance(self._recent_fingerprints, dict)
+        assert isinstance(self._service_locks, dict)
+
+        valid_statuses = {
+            "pending",
+            "running",
+            "awaiting_approval",
+            "completed",
+            "failed",
+        }
+        now_ts = time.time()
+        
+        for job_id in self._jobs:
+            job = self._jobs[job_id]
+            if job_id not in self._pipeline_outcomes:
+                self._rebuild_derived_state(job)
+
+            status = getattr(job, "status", None)
+            if status not in valid_statuses:
+                raise RuntimeError(
+                    f"State inconsistency: invalid status job_id={job_id} status={status}"
+                )
+
+            scenario = getattr(job, "scenario", None)
+            if not isinstance(scenario, str) or not scenario.strip():
+                raise RuntimeError(
+                    f"State inconsistency: invalid scenario job_id={job_id} scenario={scenario}"
+                )
+
+            started_at = getattr(job, "started_at", None)
+            finished_at = getattr(job, "finished_at", None)
+            if started_at is not None and not isinstance(started_at, (int, float)):
+                raise RuntimeError(
+                    f"State inconsistency: invalid started_at job_id={job_id} started_at={started_at}"
+                )
+            if finished_at is not None and not isinstance(finished_at, (int, float)):
+                raise RuntimeError(
+                    f"State inconsistency: invalid finished_at job_id={job_id} finished_at={finished_at}"
+                )
+            if isinstance(started_at, (int, float)) and (started_at < 0 or started_at > now_ts):
+                raise RuntimeError(
+                    f"State inconsistency: out_of_range_started_at job_id={job_id} started_at={started_at}"
+                )
+            if isinstance(finished_at, (int, float)) and (finished_at < 0 or finished_at > now_ts):
+                raise RuntimeError(
+                    f"State inconsistency: out_of_range_finished_at job_id={job_id} finished_at={finished_at}"
+                )
+            if (
+                isinstance(started_at, (int, float))
+                and isinstance(finished_at, (int, float))
+                and finished_at < started_at
+            ):
+                raise RuntimeError(
+                    f"State inconsistency: finished_at_before_started_at job_id={job_id} started_at={started_at} finished_at={finished_at}"
+                )
+
+            outcome = self._pipeline_outcomes[job_id]
+            if not isinstance(outcome, dict):
+                raise RuntimeError(
+                    f"State inconsistency: invalid pipeline outcome structure job_id={job_id}"
+                )
+
+        for job_id in self._pipeline_outcomes:
+            if job_id not in self._jobs:
+                raise RuntimeError(
+                    f"State inconsistency: pipeline_outcomes mismatch job_id={job_id} missing_in=jobs"
+                )
+
+    def _rebuild_derived_state(self, job: PipelineJob) -> None:
+        self._pipeline_outcomes[job.job_id] = {
+            "remediation_status": job.remediation_status,
+            "failure_stage": job.failure_stage,
+            "failure_reason": job.failure_reason,
+        }
+        while len(self._pipeline_outcomes) > self._REDIS_MAX_JOBS:
+            oldest = next(iter(self._pipeline_outcomes))
+            del self._pipeline_outcomes[oldest]
+
+    async def _persist_job_state(self, job: PipelineJob) -> None:
+        if not self._redis:
+            return
+        payload = self._serialize_job(job)
+        key = f"{self._REDIS_JOB_PREFIX}{job.job_id}"
+        try:
+            logger.info("SAVE_JOB", job_id=job.job_id)
+            await self._redis.set(key, json.dumps(payload))
+            await self._redis.lrem(self._REDIS_JOBS_INDEX, 0, job.job_id)
+            await self._redis.lpush(self._REDIS_JOBS_INDEX, job.job_id)
+            await self._redis.ltrim(self._REDIS_JOBS_INDEX, 0, self._REDIS_MAX_JOBS - 1)
+            redis_keys = await self._redis.lrange(self._REDIS_JOBS_INDEX, 0, self._REDIS_MAX_JOBS - 1)
+            logger.info("REDIS_KEYS", keys=redis_keys)
+        except Exception as e:
+            logger.warning("orchestrator_job_persist_failed", job_id=job.job_id, error=str(e))
+
+    async def _cleanup_evicted_job_keys(self, job_ids: List[str]) -> None:
+        if not self._redis or not job_ids:
+            return
+        for job_id in job_ids:
+            key = f"{self._REDIS_JOB_PREFIX}{job_id}"
+            try:
+                await self._redis.delete(key)
+                await self._redis.lrem(self._REDIS_JOBS_INDEX, 0, job_id)
+                await self._redis.hdel(self._REDIS_PIPELINE_OUTCOMES, job_id)
+            except Exception as e:
+                logger.warning("orchestrator_evicted_job_cleanup_failed", job_id=job_id, error=str(e))
+
+    async def _restore_persisted_jobs(self) -> None:
+        if not self._redis:
+            return
+        logger.info("ORCHESTRATOR_INSTANCE", id=id(self), stage="restore")
+        try:
+            raw_job_ids = await self._redis.lrange(self._REDIS_JOBS_INDEX, 0, self._REDIS_MAX_JOBS - 1)
+            if not raw_job_ids:
+                return
+            restored: Dict[str, PipelineJob] = {}
+            restore_errors: List[Dict[str, str]] = []
+            seen_job_ids: Set[str] = set()
+            duplicate_job_ids: Set[str] = set()
+            valid_statuses = {
+                "pending",
+                "running",
+                "awaiting_approval",
+                "completed",
+                "failed",
+            }
+            now_ts = time.time()
+            for raw_job_id in raw_job_ids:
+                if isinstance(raw_job_id, bytes):
+                    try:
+                        job_id = raw_job_id.decode("utf-8")
+                    except UnicodeDecodeError as e:
+                        restore_errors.append({
+                            "job_id": "<invalid>",
+                            "message": f"invalid_redis_job_id_encoding error={str(e)}",
+                        })
+                        continue
+                elif isinstance(raw_job_id, str):
+                    job_id = raw_job_id
+                else:
+                    restore_errors.append({
+                        "job_id": "<invalid>",
+                        "message": f"invalid_redis_job_id_type value={raw_job_id}",
+                    })
+                    continue
+
+                if not job_id.strip():
+                    restore_errors.append({
+                        "job_id": "<invalid>",
+                        "message": "invalid_redis_job_id empty",
+                    })
+                    continue
+
+                if job_id in seen_job_ids:
+                    duplicate_job_ids.add(job_id)
+                    continue
+                seen_job_ids.add(job_id)
+
+                if job_id in duplicate_job_ids:
+                    continue
+
+                key = f"{self._REDIS_JOB_PREFIX}{job_id}"
+                raw_payload = await self._redis.get(key)
+                if not raw_payload:
+                    restore_errors.append({
+                        "job_id": job_id,
+                        "message": "missing_payload",
+                    })
+                    continue
+                try:
+                    payload = json.loads(raw_payload)
+                    if not isinstance(payload, dict):
+                        raise RuntimeError(f"invalid_payload_type job_id={job_id} payload_type={type(payload).__name__}")
+                    job = PipelineJob.from_persisted(payload)
+                    if job.status in {"pending", "running", "awaiting_approval"}:
+                        job.status = "failed"
+                        job.error = "interrupted_by_restart"
+                        if job.finished_at is None:
+                            job.finished_at = time.time()
+                    status = getattr(job, "status", None)
+                    if status not in valid_statuses:
+                        raise RuntimeError(f"Invalid restored job status for job_id={job_id}: status={status}")
+                    scenario = getattr(job, "scenario", None)
+                    if not isinstance(scenario, str) or not scenario.strip():
+                        raise RuntimeError(f"Invalid restored job scenario for job_id={job_id}: scenario={scenario}")
+                    started_at = getattr(job, "started_at", None)
+                    finished_at = getattr(job, "finished_at", None)
+                    if started_at is not None and not isinstance(started_at, (int, float)):
+                        raise RuntimeError(f"Invalid restored started_at for job_id={job_id}: started_at={started_at}")
+                    if finished_at is not None and not isinstance(finished_at, (int, float)):
+                        raise RuntimeError(f"Invalid restored finished_at for job_id={job_id}: finished_at={finished_at}")
+                    if isinstance(started_at, (int, float)) and (started_at < 0 or started_at > now_ts):
+                        raise RuntimeError(f"Out-of-range restored started_at for job_id={job_id}: started_at={started_at}")
+                    if isinstance(finished_at, (int, float)) and (finished_at < 0 or finished_at > now_ts):
+                        raise RuntimeError(f"Out-of-range restored finished_at for job_id={job_id}: finished_at={finished_at}")
+                    if (
+                        isinstance(started_at, (int, float))
+                        and isinstance(finished_at, (int, float))
+                        and finished_at < started_at
+                    ):
+                        raise RuntimeError(
+                            f"Invalid restored timestamp range for job_id={job_id}: started_at={started_at} finished_at={finished_at}"
+                        )
+                    if job.job_id != job_id:
+                        restore_errors.append({
+                            "job_id": job_id,
+                            "message": f"job_id_mismatch payload_job_id={job.job_id}",
+                        })
+                        continue
+                    logger.info("RESTORE_JOB", job_id=job.job_id)
+                    restored[job.job_id] = job
+                except Exception as e:
+                    restore_errors.append({
+                        "job_id": job_id,
+                        "message": f"invalid_payload error={str(e)}",
+                    })
+
+            if duplicate_job_ids:
+                restore_errors.append({
+                    "job_id": "<multiple>",
+                    "message": f"duplicate_redis_job_ids values={sorted(duplicate_job_ids)}",
+                })
+
+            if restored:
+                async with self._jobs_lock:
+                    for job_id, job in restored.items():
+                        self._jobs[job_id] = job
+                        self._rebuild_derived_state(job)
+                    logger.info("MEMORY_KEYS", keys=list(self._jobs.keys()))
+                logger.info("orchestrator_jobs_restored", count=len(restored))
+
+            if restore_errors:
+                summary = "; ".join(
+                    f"job_id={error['job_id']} message={error['message']}"
+                    for error in restore_errors[:3]
+                )
+                raise RuntimeError(
+                    f"Restore failed with {len(restore_errors)} error(s): {summary}"
+                )
+        except Exception as e:
+            raise RuntimeError(f"Restore failed: {str(e)}") from e
+
+    async def _persist_pipeline_outcome_state(
+        self,
+        correlation_id: str,
+        remediation_status: Optional[str],
+        failure_stage: Optional[str],
+        failure_reason: Optional[str],
+    ) -> None:
+        if not self._redis:
+            return
+        payload = {
+            "correlation_id": correlation_id,
+            "remediation_status": remediation_status,
+            "failure_stage": failure_stage,
+            "failure_reason": failure_reason,
+            "updated_at": time.time(),
+        }
+        try:
+            await self._redis.hset(self._REDIS_PIPELINE_OUTCOMES, correlation_id, json.dumps(payload))
+        except Exception as e:
+            logger.warning("orchestrator_outcome_persist_failed", correlation_id=correlation_id, error=str(e))
+
+    async def _persist_runtime_event(
+        self,
+        *,
+        event_type: str,
+        job_id: str,
+        scenario: str,
+        status: str,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not self._redis:
+            return
+        details = details or {}
+        payload = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "event_type": event_type,
+            "job_id": job_id,
+            "scenario": scenario,
+            "status": status,
+            "details": json.dumps(details),
+        }
+        try:
+            await self._redis.xadd(
+                self._REDIS_EVENTS_STREAM,
+                payload,
+                maxlen=self._settings.redis.stream_max_len,
+                approximate=True,
+            )
+        except Exception as e:
+            logger.warning("orchestrator_event_persist_failed", event_type=event_type, job_id=job_id, error=str(e))
 
     # ─────────────────────────────────────────────────────────────
     # FIX #3 — Per-service lock helper
@@ -415,6 +881,12 @@ class AgentOrchestrator:
             if len(self._pipeline_outcomes) > 500:
                 oldest = next(iter(self._pipeline_outcomes))
                 del self._pipeline_outcomes[oldest]
+        await self._persist_pipeline_outcome_state(
+            correlation_id=correlation_id,
+            remediation_status=remediation_status,
+            failure_stage=failure_stage,
+            failure_reason=failure_reason,
+        )
 
     @staticmethod
     def _derive_remediation_status(
@@ -1057,6 +1529,7 @@ class AgentOrchestrator:
     async def create_job(self, scenario: str) -> PipelineJob:
         job_id = f"job-{uuid.uuid4().hex[:12]}"
         job = PipelineJob(job_id=job_id, scenario=scenario)
+        evicted_job_ids: List[str] = []
         async with self._jobs_lock:
             self._jobs[job_id] = job
             # Bounded eviction: keep at most 1000 jobs
@@ -1067,39 +1540,123 @@ class AgentOrchestrator:
                 ]
                 for jid in old[:100]:
                     del self._jobs[jid]
+                    evicted_job_ids.append(jid)
+        await self._cleanup_evicted_job_keys(evicted_job_ids)
+        await self._persist_job_state(job)
+        await self._persist_runtime_event(
+            event_type="job_created",
+            job_id=job.job_id,
+            scenario=job.scenario,
+            status=job.status,
+        )
         return job
 
     async def run_job(self, job: PipelineJob, metrics: List[ServiceMetric]) -> None:
         """Execute a pipeline job. Called from FastAPI BackgroundTasks."""
-        job.status = "running"
-        job.started_at = time.time()
+        async with self._job_execution_semaphore:
+            async with self._jobs_lock:
+                tracked_job = self._jobs.get(job.job_id)
+                if not tracked_job:
+                    return
+                tracked_job.status = "running"
+                tracked_job.started_at = time.time()
+                scenario = tracked_job.scenario
+                persisted_job = tracked_job
 
-        try:
-            record = await self.run_full_pipeline(
-                metrics=metrics,
-                correlation_id=job.job_id,
-                scenario=job.scenario,
+            await self._persist_job_state(persisted_job)
+            await self._persist_runtime_event(
+                event_type="job_started",
+                job_id=job.job_id,
+                scenario=scenario,
+                status=persisted_job.status,
             )
-            job.record = record
-            job.status = "completed"
-            if record:
-                job.anomaly_type = record.anomaly.anomaly_type
-                job.patch_type = record.patch.patch_type
-                job.deployed = record.was_successful
-                job.remediation_status = record.remediation_status.value
-                job.failure_stage = record.failure_stage.value if record.failure_stage else None
-                job.failure_reason = record.failure_reason
-            else:
-                outcome = self._pipeline_outcomes.get(job.job_id, {})
-                job.remediation_status = outcome.get("remediation_status")
-                job.failure_stage = outcome.get("failure_stage")
-                job.failure_reason = outcome.get("failure_reason")
-        except Exception as e:
-            job.error = str(e)
-            job.status = "failed"
-            logger.error("job_failed", job_id=job.job_id, error=str(e))
-        finally:
-            job.finished_at = time.time()
+
+            try:
+                record = await asyncio.wait_for(
+                    self.run_full_pipeline(
+                        metrics=metrics,
+                        correlation_id=job.job_id,
+                        scenario=scenario,
+                    ),
+                    timeout=self._job_execution_timeout_seconds,
+                )
+                async with self._jobs_lock:
+                    tracked_job = self._jobs.get(job.job_id)
+                    if not tracked_job:
+                        return
+                    tracked_job.record = record
+                    tracked_job.status = "completed"
+                    if record:
+                        tracked_job.anomaly_type = record.anomaly.anomaly_type
+                        tracked_job.patch_type = record.patch.patch_type
+                        tracked_job.deployed = record.was_successful
+                        tracked_job.remediation_status = record.remediation_status.value
+                        tracked_job.failure_stage = record.failure_stage.value if record.failure_stage else None
+                        tracked_job.failure_reason = record.failure_reason
+                    else:
+                        outcome = self._pipeline_outcomes.get(job.job_id, {})
+                        tracked_job.remediation_status = outcome.get("remediation_status")
+                        tracked_job.failure_stage = outcome.get("failure_stage")
+                        tracked_job.failure_reason = outcome.get("failure_reason")
+                    persisted_job = tracked_job
+            except asyncio.TimeoutError:
+                timeout_error = f"job_execution_timeout_seconds={self._job_execution_timeout_seconds}"
+                async with self._jobs_lock:
+                    tracked_job = self._jobs.get(job.job_id)
+                    if not tracked_job:
+                        return
+                    tracked_job.error = timeout_error
+                    tracked_job.status = "failed"
+                    persisted_job = tracked_job
+                logger.error("job_failed", job_id=job.job_id, error=timeout_error)
+                await self._persist_runtime_event(
+                    event_type="job_failed",
+                    job_id=job.job_id,
+                    scenario=scenario,
+                    status="failed",
+                    details={"error": timeout_error},
+                )
+            except Exception as e:
+                async with self._jobs_lock:
+                    tracked_job = self._jobs.get(job.job_id)
+                    if not tracked_job:
+                        return
+                    tracked_job.error = str(e)
+                    tracked_job.status = "failed"
+                    persisted_job = tracked_job
+                logger.error("job_failed", job_id=job.job_id, error=str(e))
+                await self._persist_runtime_event(
+                    event_type="job_failed",
+                    job_id=job.job_id,
+                    scenario=scenario,
+                    status="failed",
+                    details={"error": str(e)},
+                )
+            finally:
+                async with self._jobs_lock:
+                    tracked_job = self._jobs.get(job.job_id)
+                    if not tracked_job:
+                        return
+                    tracked_job.finished_at = time.time()
+                    final_status = tracked_job.status
+                    final_remediation_status = tracked_job.remediation_status
+                    final_failure_stage = tracked_job.failure_stage
+                    final_failure_reason = tracked_job.failure_reason
+                    persisted_job = tracked_job
+
+                await self._persist_job_state(persisted_job)
+                if final_status == "completed":
+                    await self._persist_runtime_event(
+                        event_type="job_completed",
+                        job_id=job.job_id,
+                        scenario=scenario,
+                        status=final_status,
+                        details={
+                            "remediation_status": final_remediation_status,
+                            "failure_stage": final_failure_stage,
+                            "failure_reason": final_failure_reason,
+                        },
+                    )
 
     async def get_job(self, job_id: str) -> Optional[PipelineJob]:
         async with self._jobs_lock:
@@ -1152,30 +1709,34 @@ class AgentOrchestrator:
         if n == 0:
             return
 
-        self._total_pipeline_latency_ms += (record.total_duration_seconds * 1000.0)
-        self._total_sandbox_duration_seconds += record.validation.duration_seconds
-
-        self._metrics.avg_pipeline_latency_ms = self._total_pipeline_latency_ms / n
-        self._metrics.avg_sandbox_duration_seconds = self._total_sandbox_duration_seconds / n
+        self._total_mttd += record.mttd_seconds
+        self._total_mttr += record.mttr_seconds
+        self._metrics.avg_mttd_seconds = self._total_mttd / n
+        self._metrics.avg_mttr_seconds = self._total_mttr / n
 
         if record.was_successful:
             self._success_count += 1
 
         self._metrics.autonomous_resolution_rate = self._success_count / n
 
-        # Throughput (EPS) calculation — based on events processed
-        # Assuming each remediation record represents roughly 6 key state transitions (events)
-        total_events = n * 6
-        self._metrics.events_processed = total_events
-        
-        # Simple EPS: total events over time since first record
-        if n > 1:
-            uptime = (datetime.now(timezone.utc) - self._remediation_history[0].completed_at).total_seconds()
-            if uptime > 0:
-                self._metrics.events_per_second = total_events / uptime
-
         # Prometheus gauges
         AUTONOMOUS_RESOLUTION_RATE.set(self._metrics.autonomous_resolution_rate)
+
+        hrs_per_incident = 0.75  # estimate — see docs/observability_runbook.md
+        self._metrics.engineering_hours_saved = self._success_count * hrs_per_incident
+        hourly_cost = self._settings.metrics.engineer_hourly_cost
+        self._metrics.roi_dollars = self._metrics.engineering_hours_saved * hourly_cost
+
+        ENGINEERING_HOURS_SAVED.set(self._metrics.engineering_hours_saved)
+        ROI_DOLLARS.set(self._metrics.roi_dollars)
+
+        if n >= 5:
+            self._metrics.manual_workflows_reduced_pct = min(
+                self._metrics.autonomous_resolution_rate * 100, 90.0
+            )
+            self._metrics.infrastructure_inefficiency_reduced_pct = min(
+                self._metrics.autonomous_resolution_rate * 100 * 1.07, 96.0
+            )
 
         self._metrics.knowledge_base_entries = (
             self._knowledge_engine.document_count if self._knowledge_engine else n

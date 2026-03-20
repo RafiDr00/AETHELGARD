@@ -22,6 +22,7 @@ import uvicorn
 
 from core.config import get_settings
 from core.logging_config import setup_logging, get_logger
+from api import app
 
 
 async def start_platform() -> None:

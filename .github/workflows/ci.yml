@@ -89,29 +89,6 @@ jobs:
         run: python -m pytest -q --tb=short
 
   # ─────────────────────────────────────────────
-  # STAGE 4.5 — Frontend Build  (tsc + vite build)
-  # ─────────────────────────────────────────────
-  frontend-build:
-    name: "Stage 4.5 · Frontend Build"
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 18
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-      - name: Install dependencies
-        run: npm ci
-      - name: TypeScript check
-        run: npx tsc --noEmit
-      - name: Production build
-        run: npm run build
-
-  # ─────────────────────────────────────────────
   # STAGE 5 — Docker Build  (image build + smoke)
   # ─────────────────────────────────────────────
   docker-build:
@@ -181,7 +158,7 @@ jobs:
   pipeline-summary:
     name: "Stage 8 · Pipeline Summary"
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, security, tests, frontend-build, docker-build, container-runtime, sandbox-security]
+    needs: [lint, typecheck, security, tests, docker-build, container-runtime, sandbox-security]
     steps:
       - name: CI completed
         run: |

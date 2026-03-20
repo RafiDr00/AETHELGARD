@@ -1,8 +1,12 @@
 import time
+import os
 import requests
 
-API_KEY = "dev-aethelgard-key-local"
+API_KEY = os.environ.get("AETHELGARD_API_KEY", "")
 URL = "http://localhost:8080/api/v1/pipeline/run?scenario=payment_latency_spike"
+
+if not API_KEY:
+    raise SystemExit("Set AETHELGARD_API_KEY before running trigger.py")
 
 print("Waiting for server to fully start...")
 time.sleep(3)

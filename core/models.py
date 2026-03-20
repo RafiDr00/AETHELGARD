@@ -256,18 +256,19 @@ class RemediationRecord(BaseModel):
 
 
 class PlatformMetrics(BaseModel):
-    """Aggregated platform performance technical benchmarks."""
+    """Aggregated platform performance metrics."""
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     total_anomalies_detected: int = 0
     total_fixes_deployed: int = 0
     total_rollbacks: int = 0
-    # Engineering-focused metrics
-    avg_pipeline_latency_ms: float = 0.0
-    events_per_second: float = 0.0
-    avg_sandbox_duration_seconds: float = 0.0
-    
+    avg_mttd_seconds: float = 0.0
+    avg_mttr_seconds: float = 0.0
+    engineering_hours_saved: float = 0.0
+    roi_dollars: float = 0.0
     autonomous_resolution_rate: float = 0.0
-    active_agents: int = 5
+    manual_workflows_reduced_pct: float = 0.0
+    infrastructure_inefficiency_reduced_pct: float = 0.0
+    active_agents: int = 0
     events_processed: int = 0
     knowledge_base_entries: int = 0
 

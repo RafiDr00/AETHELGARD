@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AETHELGARD // OPS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Barlow+Condensed:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/ui/ops_console.css">
+</head>
+<body>
+<div class="noise"></div>
+<div class="pulse-ring"></div><div class="pulse-ring"></div><div class="pulse-ring"></div>
+<div class="shell">
+<header>
+  <div class="h-left"><div class="brand">AETHELGARD</div><div class="h-meta">AUTONOMOUS INCIDENT RESPONSE<br>v2.4.1 · BUILD 20240316</div></div>
+  <div class="h-center">
+    <div class="hstat"><span class="led led-g"></span>EVENT BUS</div>
+    <div class="hstat"><span class="led led-g"></span>REDIS</div>
+    <div class="hstat"><span class="led led-p"></span>PIPELINE</div>
+    <div class="hstat"><span class="led led-g"></span>SANDBOX</div>
+    <div class="hstat"><span class="led led-w"></span>PAYMENT-API</div>
+  </div>
+  <div class="h-right"><div class="h-state" id="state-indicator">● RESPONDING</div><div class="h-clock" id="clock">00:00:00<span class="ms">.000</span></div></div>
+</header>
+
+<div class="body">
+  <div class="col-left">
+    <div class="col-hdr"><span class="col-ttl">Incident Stream</span><span class="col-badge on" id="ev-cnt">000 EVENTS</span></div>
+    <div class="stream-wrap"><div class="s-fade"></div><div class="s-list" id="stream"></div></div>
+  </div>
+
+  <div class="col-center">
+    <div class="col-hdr"><span class="col-ttl">Response Pipeline</span><span class="col-badge on" id="pipe-badge">STANDBY</span></div>
+    <div class="pipe-area">
+      <div class="pipe-grid">
+        <div class="beam-track" style="grid-column:1/-1;grid-row:2;align-self:center;height:1px;"></div>
+
+        <div class="nt c0"><span class="nd-lbl" id="l0" style="color:var(--t3)">DETECT</span><span class="nd-v" id="v0a">awaiting signal</span><span class="nd-v" id="v0b">—</span></div>
+        <div class="no c0"><div class="node idle" id="n0"><div class="node-fill"></div><span class="ni">DET</span><span class="nd-sub" id="nd0">idle</span></div></div>
+        <div class="nb c0"><span class="nd-lbl">AGENT-01</span><span class="nd-v" id="t0">—</span></div>
+
+        <div class="nt c1"><span class="nd-lbl" id="l1" style="color:var(--t3)">DIAGNOSE</span><span class="nd-v" id="v1a">context</span><span class="nd-v" id="v1b">—</span></div>
+        <div class="no c1"><div class="node idle" id="n1"><div class="node-fill"></div><span class="ni">DGN</span><span class="nd-sub" id="nd1">idle</span></div></div>
+        <div class="nb c1"><span class="nd-lbl">ROOT CAUSE</span><span class="nd-v" id="t1">—</span></div>
+
+        <div class="nt c2"><span class="nd-lbl" id="l2" style="color:var(--t3)">REMEDIATE</span><span class="nd-v" id="v2a">patch plan</span><span class="nd-v" id="v2b">—</span></div>
+        <div class="no c2"><div class="node idle" id="n2"><div class="node-fill"></div><span class="ni">RMD</span><span class="nd-sub" id="nd2">idle</span></div></div>
+        <div class="nb c2"><span class="nd-lbl">PATCH</span><span class="nd-v" id="t2">—</span></div>
+
+        <div class="nt c3"><span class="nd-lbl" id="l3" style="color:var(--t3)">VALIDATE</span><span class="nd-v" id="v3a">checks</span><span class="nd-v" id="v3b">—</span></div>
+        <div class="no c3"><div class="node idle" id="n3"><div class="node-fill"></div><span class="ni">VAL</span><span class="nd-sub" id="nd3">idle</span></div></div>
+        <div class="nb c3"><span class="nd-lbl">SAFETY</span><span class="nd-v" id="t3">—</span></div>
+
+        <div class="nt c4"><span class="nd-lbl" id="l4" style="color:var(--t3)">DEPLOY</span><span class="nd-v" id="v4a">release</span><span class="nd-v" id="v4b">—</span></div>
+        <div class="no c4"><div class="node idle" id="n4"><div class="node-fill"></div><span class="ni">DEP</span><span class="nd-sub" id="nd4">idle</span></div></div>
+        <div class="nb c4"><span class="nd-lbl">SIM</span><span class="nd-v" id="t4">—</span></div>
+      </div>
+    </div>
+
+    <div class="pipe-progress"><span class="pp-lbl">PIPELINE</span><div class="pp-bar"><div class="pp-fill" id="pp-fill" style="width:0%"></div></div><span class="pp-pct" id="pp-pct">0%</span><span class="pp-status" id="pp-status">STANDBY</span></div>
+
+    <div class="metrics-row">
+      <div class="mb"><div class="mb-lbl">Consistency</div><div class="mb-gauge"><div class="mb-track"><div class="mb-bar ok" id="b1" style="width:0%"></div></div></div><div><span class="mb-val ok" id="m1">0.0</span><span class="mb-unit">%</span></div><div class="mb-spark"><svg id="s1" viewBox="0 0 110 14" preserveAspectRatio="none"></svg></div></div>
+      <div class="mb"><div class="mb-lbl">Precision</div><div class="mb-gauge"><div class="mb-track"><div class="mb-bar ok" id="b2" style="width:0%"></div></div></div><div><span class="mb-val ok" id="m2">0.0</span><span class="mb-unit">%</span></div><div class="mb-spark"><svg id="s2" viewBox="0 0 110 14" preserveAspectRatio="none"></svg></div></div>
+      <div class="mb"><div class="mb-lbl">MTTD</div><div class="mb-gauge"><div class="mb-track"><div class="mb-bar p" id="b3" style="width:0%"></div></div></div><div><span class="mb-val p" id="m3">0.0</span><span class="mb-unit">s</span></div><div class="mb-spark"><svg id="s3" viewBox="0 0 110 14" preserveAspectRatio="none"></svg></div></div>
+      <div class="mb"><div class="mb-lbl">MTTR</div><div class="mb-gauge"><div class="mb-track"><div class="mb-bar warn" id="b4" style="width:0%"></div></div></div><div><span class="mb-val warn" id="m4">0.0</span><span class="mb-unit">s</span></div><div class="mb-spark"><svg id="s4" viewBox="0 0 110 14" preserveAspectRatio="none"></svg></div></div>
+      <div class="mb"><div class="mb-lbl">INC / hr</div><div class="mb-gauge"><div class="mb-track"><div class="mb-bar warn" id="b5" style="width:0%"></div></div></div><div><span class="mb-val warn" id="m5">0.00</span></div><div class="mb-spark"><svg id="s5" viewBox="0 0 110 14" preserveAspectRatio="none"></svg></div></div>
+    </div>
+  </div>
+
+  <div class="col-right">
+    <div class="col-hdr"><span class="col-ttl">Agent Reasoning</span><span class="col-badge on">REACT LOOP</span></div>
+    <div class="r-feed" id="reasoning"></div>
+  </div>
+</div>
+
+<div class="bottom">
+  <div class="bot-sec">
+    <span class="bot-ttl">System Status</span>
+    <div class="kv-grid">
+      <div class="kv"><span class="kv-k">Event Bus</span><span class="kv-v g">CONN</span></div>
+      <div class="kv"><span class="kv-k">Redis</span><span class="kv-v g">ACTIVE</span></div>
+      <div class="kv"><span class="kv-k">Sandbox</span><span class="kv-v g">READY</span></div>
+      <div class="kv"><span class="kv-k">FAISS</span><span class="kv-v p" id="kb-count">0</span></div>
+      <div class="kv"><span class="kv-k">Workers</span><span class="kv-v p" id="wc">0/8</span></div>
+      <div class="kv"><span class="kv-k">Groups</span><span class="kv-v p" id="groups">0</span></div>
+      <div class="kv"><span class="kv-k">DLQ</span><span class="kv-v g">0</span></div>
+      <div class="kv"><span class="kv-k">Gateway</span><span class="kv-v g" id="gateway">OK</span></div>
+    </div>
+  </div>
+  <div class="bot-sec">
+    <span class="bot-ttl">Chaos Injection — Simulation</span>
+    <div class="chaos-grid">
+      <button class="cb" data-signal="api"><span class="cb-n">API Lat</span><span class="cb-s">payment-api</span></button>
+      <button class="cb" data-signal="mem"><span class="cb-n">Mem Leak</span><span class="cb-s">worker-pool</span></button>
+      <button class="cb" data-signal="cpu"><span class="cb-n">CPU Spike</span><span class="cb-s">core-svc</span></button>
+      <button class="cb" data-signal="db"><span class="cb-n">DB Drop</span><span class="cb-s">postgres</span></button>
+      <button class="cb" data-signal="net"><span class="cb-n">Net Split</span><span class="cb-s">mesh·3</span></button>
+      <button class="cb" data-signal="cas"><span class="cb-n">Cascade</span><span class="cb-s">full-stack</span></button>
+    </div>
+  </div>
+  <div class="bot-sec" style="border-right:none">
+    <span class="bot-ttl">Recent Resolutions</span>
+    <div class="mini-log" id="resolutions"></div>
+  </div>
+</div>
+</div>
+<div id="toast"></div>
+<script type="module" src="/ui/ops_console.js"></script>
+</body>
+</html>

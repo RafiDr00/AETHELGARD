@@ -2,11 +2,6 @@
 # Aethelgard — Docker build context exclusions
 # ────────────────────────────────────────────
 
-# Node / frontend build artifacts
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
-
 # Python caches
 __pycache__/
 **/__pycache__/

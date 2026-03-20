@@ -1,10 +1,9 @@
 """
 Aethelgard v2 — Quick Start
 
-Runs the full platform demo and optionally launches the dashboard.
+Runs the full platform demo.
 Usage:
-    python quickstart.py          # Run demo only
-    python quickstart.py --dash   # Run demo + open dashboard
+    python quickstart.py
 """
 
 from __future__ import annotations
@@ -12,10 +11,8 @@ from __future__ import annotations
 import asyncio
 import io
 import os
-import subprocess
 import sys
 import time
-import webbrowser
 from pathlib import Path
 
 # Force UTF-8
@@ -30,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 def check_deps():
     """Check that required packages are installed."""
     missing = []
-    for pkg in ["pydantic", "structlog", "rich", "streamlit", "plotly", "pandas", "numpy"]:
+    for pkg in ["pydantic", "structlog", "rich", "numpy"]:
         try:
             __import__(pkg)
         except ImportError:
@@ -118,45 +115,18 @@ async def run_demo_pipeline():
     else:
         console.print("[yellow]No anomaly detected — baseline may need more samples[/yellow]")
 
-    console.print("\n[bold cyan]Dashboard:[/bold cyan] streamlit run dashboard/streamlit_app.py")
     console.print("[bold cyan]API docs:[/bold cyan]  uvicorn api:app --reload  →  http://localhost:8000/docs")
     console.print("[dim]─────────────────────────────────────────[/dim]")
 
 
-def launch_dashboard():
-    """Launch the Streamlit dashboard in a background process."""
-    print("Launching dashboard at http://localhost:8501 ...")
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "streamlit", "run",
-         "dashboard/streamlit_app.py",
-         "--server.port", "8501",
-         "--server.headless", "true"],
-        cwd=str(Path(__file__).parent),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    time.sleep(3)
-    webbrowser.open("http://localhost:8501")
-    print("Dashboard opened in browser. Press Ctrl+C to stop.")
-    try:
-        proc.wait()
-    except KeyboardInterrupt:
-        proc.terminate()
-
-
 def main():
     check_deps()
-
-    launch_dash = "--dash" in sys.argv or "-d" in sys.argv
 
     try:
         asyncio.run(run_demo_pipeline())
     except KeyboardInterrupt:
         print("\nAborted.")
         return
-
-    if launch_dash:
-        launch_dashboard()
 
 
 if __name__ == "__main__":

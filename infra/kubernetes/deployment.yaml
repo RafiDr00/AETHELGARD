@@ -36,7 +36,7 @@ spec:
           image: aethelgard/api:v2.0.0
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
@@ -95,11 +95,15 @@ spec:
               mountPath: /app/data
             - name: logs-volume
               mountPath: /app/logs
+            - name: tmp-volume
+              mountPath: /tmp
       volumes:
         - name: data-volume
           persistentVolumeClaim:
             claimName: aethelgard-data-pvc
         - name: logs-volume
+          emptyDir: {}
+        - name: tmp-volume
           emptyDir: {}
       topologySpreadConstraints:
         - maxSkew: 1

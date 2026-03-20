@@ -34,33 +34,6 @@ jobs:
         run: ruff format --check agents/ core/ sandbox/ api.py main.py
 
   # ───────────────────────────────────────────────────────
-  # STAGE 2 — Frontend Build  (tsc typecheck + vite build)
-  # ───────────────────────────────────────────────────────
-  frontend-build:
-    name: "Build · Frontend (tsc + vite)"
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: TypeScript check
-        run: npx tsc --noEmit
-
-      - name: Production build
-        run: npm run build
-
-  # ───────────────────────────────────────────────────────
   # STAGE 3 — Backend Import Check  (python -c import)
   # ───────────────────────────────────────────────────────
   backend-import:
@@ -100,11 +73,10 @@ jobs:
   build-ok:
     name: "Build · Gate"
     runs-on: ubuntu-latest
-    needs: [lint, frontend-build, backend-import]
+    needs: [lint, backend-import]
     steps:
       - name: All quality gates passed
         run: |
           echo "lint         ✓"
-          echo "frontend     ✓"
           echo "backend      ✓"
           echo "Commit ${{ github.sha }} cleared build gate."

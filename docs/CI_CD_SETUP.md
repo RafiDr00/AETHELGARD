@@ -7,7 +7,7 @@ This repository now includes split CI/CD workflows:
 
 Execution flow:
 
-1. `CI` runs quality gates (lint, typecheck, security, tests, frontend build, docker build)
+1. `CI` runs quality gates (lint, typecheck, security, tests, docker build)
 2. `CD` runs only after successful `CI` on `main`/`master`, or by manual dispatch
 3. `CD` publishes container image to GHCR (`ghcr.io/<owner>/aethelgard:<sha>`)
 4. `CD` deploys to staging Kubernetes

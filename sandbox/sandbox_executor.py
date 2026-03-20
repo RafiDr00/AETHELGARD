@@ -337,6 +337,10 @@ class SandboxExecutor:
         """Execute in a real Docker container with seccomp profile."""
         import docker
 
+        docker_errors = getattr(docker, "errors", None)
+        not_found_exc = getattr(docker_errors, "NotFound", Exception) if docker_errors else Exception
+        container_error_exc = getattr(docker_errors, "ContainerError", Exception) if docker_errors else Exception
+
         client = docker.from_env()
         sandbox_config = self._settings.sandbox
 
@@ -356,15 +360,22 @@ class SandboxExecutor:
                 logs.append(f"[{execution_id}] Identifying target service container...")
                 
                 target_image = sandbox_config.image
-                try:
-                    # Attempt to clone real running container
-                    target_container = client.containers.get("payment-service")
-                    logs.append(f"[{execution_id}] Found target: {target_container.short_id} (payment-service)")
-                    logs.append(f"[{execution_id}] Cloning container state to sandbox image...")
-                    cloned = target_container.commit(repository=f"sandbox-clone-{execution_id}")
-                    target_image = cloned.id
-                except docker.errors.NotFound:
-                    logs.append(f"[{execution_id}] Target not found, using base image.")
+                containers_api = getattr(client, "containers", None)
+                get_container = getattr(containers_api, "get", None) if containers_api else None
+                if callable(get_container):
+                    try:
+                        # Attempt to clone real running container
+                        target_container = get_container("payment-service")
+                        logs.append(f"[{execution_id}] Found target: {target_container.short_id} (payment-service)")
+                        logs.append(f"[{execution_id}] Cloning container state to sandbox image...")
+                        cloned = target_container.commit(repository=f"sandbox-clone-{execution_id}")
+                        target_image = cloned.id
+                    except not_found_exc:
+                        logs.append(f"[{execution_id}] Target not found, using base image.")
+                    except Exception as exc:
+                        logs.append(f"[{execution_id}] Target lookup skipped ({exc}), using base image.")
+                else:
+                    logs.append(f"[{execution_id}] Target lookup unavailable, using base image.")
 
                 logs.append(f"[{execution_id}] Applying proposed patch to sandbox...")
                 
@@ -415,7 +426,7 @@ class SandboxExecutor:
                     "container_used": True,
                 }
 
-            except docker.errors.ContainerError as e:
+            except container_error_exc as e:
                 return {
                     "passed": False,
                     "exit_code": e.exit_status,

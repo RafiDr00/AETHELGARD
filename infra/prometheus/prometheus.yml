@@ -33,8 +33,6 @@ scrape_configs:
     scrape_interval: 5s
     static_configs:
       - targets: ["payment-service:8001"]
-    labels:
-      service: payment-service
 
   - job_name: jaeger
     static_configs:

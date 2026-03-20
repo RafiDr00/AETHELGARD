@@ -50,7 +50,7 @@ class LLMConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="OPENAI_")
 
     provider: str = "openai"
-    api_key: str = "not-set"
+    api_key: str = ""
     model: str = "gpt-4"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
@@ -102,8 +102,8 @@ class AWSConfig(BaseSettings):
     """AWS cloud simulation configuration."""
     model_config = SettingsConfigDict(env_prefix="AWS_")
 
-    access_key_id: str = "not-set"
-    secret_access_key: str = "not-set"
+    access_key_id: str = ""
+    secret_access_key: str = ""
     region: str = "us-east-1"
     s3_bucket: str = "aethelgard-artifacts"
 
@@ -127,15 +127,6 @@ class AgentConfig(BaseSettings):
     react_max_iterations: int = 10
     detection_sensitivity: float = 0.85
     diagnosis_confidence_threshold: float = 0.75
-
-
-class DashboardConfig(BaseSettings):
-    """Streamlit dashboard configuration."""
-
-    streamlit_port: int = 8501
-    dashboard_refresh_interval: int = 5
-    max_timeline_events: int = 100
-    chart_history_hours: int = 24
 
 
 class DedupConfig(BaseSettings):
@@ -176,7 +167,6 @@ class Settings(BaseSettings):
     aws: AWSConfig = Field(default_factory=AWSConfig)
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
     agents: AgentConfig = Field(default_factory=AgentConfig)
-    dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     dedup: DedupConfig = Field(default_factory=DedupConfig)
 
     @property

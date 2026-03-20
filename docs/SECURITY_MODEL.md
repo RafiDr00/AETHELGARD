@@ -149,7 +149,6 @@ Internet
     ▼
 aethelgard-net (172.20.0.0/16)
     ├── aethelgard-api      ← can reach redis, prometheus
-    ├── aethelgard-dashboard ← can reach api only
     ├── redis               ← 127.0.0.1:6379 only (not exposed to internet)
     ├── prometheus          ← 127.0.0.1:9090 only
     └── grafana             ← 127.0.0.1:3000 only

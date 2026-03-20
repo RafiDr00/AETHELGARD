@@ -4,8 +4,6 @@
 #   docker compose -f infra/docker-compose.prod.yml up -d
 # ============================================
 
-version: "3.9"
-
 x-common-env: &common-env
   APP_ENV: production
   REDIS_HOST: redis
@@ -65,42 +63,6 @@ services:
       options:
         max-size: "20m"
         max-file: "5"
-
-  # ─────────────────────────────────────
-  # Dashboard — Production
-  # ─────────────────────────────────────
-  dashboard:
-    build:
-      context: ..
-      dockerfile: infra/Dockerfile
-    image: aethelgard:${IMAGE_TAG:-latest}
-    container_name: aethelgard-dashboard-prod
-    command: streamlit run dashboard/streamlit_app.py --server.port=8501 --server.address=0.0.0.0
-    ports:
-      - "8501:8501"
-    environment:
-      <<: *common-env
-      AETHELGARD_API_URL: http://aethelgard-api:8000
-    depends_on:
-      aethelgard-api:
-        condition: service_healthy
-    networks:
-      - aethelgard-net
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   # ─────────────────────────────────────
   # Redis — Production (with persistence)

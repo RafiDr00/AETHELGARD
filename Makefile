@@ -2,20 +2,19 @@
 
 up:
 	@echo "🚀 Starting Aethelgard Autonomous Incident Response Platform..."
-	cd infra && docker-compose up -d --build
+	cd infra && docker compose up -d --build
 	@echo "=========================================================="
 	@echo "✅ Aethelgard is running!"
-	@echo "📊 Dashboard (Streamlit): http://localhost:8501"
 	@echo "📈 Metrics (Grafana):     http://localhost:3001 (admin/admin)"
 	@echo "🔌 API Docs (FastAPI):    http://localhost:8000/docs"
 	@echo "=========================================================="
 
 down:
 	@echo "🛑 Stopping Aethelgard..."
-	cd infra && docker-compose down -v
+	cd infra && docker compose down -v
 
 logs:
-	cd infra && docker-compose logs -f
+	cd infra && docker compose logs -f
 
 # Default demo failure injection
 inject-failure: inject-api-latency

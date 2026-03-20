@@ -76,7 +76,7 @@ pip install -r requirements.txt
 ### 2. Start services (dev mode)
 
 ```bash
-# From repo root — starts api + dashboard + redis + sandbox
+# From repo root — starts api + redis + sandbox
 docker compose -f infra/docker-compose.yml up -d
 
 # Follow logs
@@ -103,7 +103,6 @@ python -m pytest -q --tb=short
 | Swagger UI | http://localhost:8000/docs |
 | Health check | http://localhost:8000/health |
 | Metrics | http://localhost:8000/metrics |
-| Dashboard | http://localhost:8501 |
 
 ---
 

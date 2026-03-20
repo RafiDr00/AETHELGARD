@@ -4,7 +4,6 @@
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688.svg)](https://fastapi.tiangolo.com)
-[![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-red.svg)](https://streamlit.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
@@ -71,8 +70,8 @@ Deployment Agent
 (simulated rollout)
 
       ▼
-Metrics + Dashboard
-(Grafana + Streamlit)
+Metrics
+(Grafana)
 ```
 
 ---
@@ -128,7 +127,7 @@ An execution of a full pipeline run yields the following sequence (detection →
 
 1. **Install Dependencies**
    ```bash
-   pip install pydantic pydantic-settings structlog rich streamlit plotly pandas numpy fastapi uvicorn
+      pip install pydantic pydantic-settings structlog rich numpy fastapi uvicorn
    ```
 
 2. **Launch Infrastructure**
@@ -136,9 +135,10 @@ An execution of a full pipeline run yields the following sequence (detection →
    make up
    ```
 
-3. **Open the Dashboards**
-   - Streamlit AI Intelligence Dashboard: `http://localhost:8501`
-   - Grafana Metrics: `http://localhost:3001`
+3. **Open Observability Tools**
+      - Ops Console: `http://localhost:8000/ops`
+      - Grafana Metrics: `http://localhost:3001`
+      - Prometheus UI: `http://localhost:9090`
 
 4. **Run Live Demo Script (CLI)**
    ```bash
@@ -157,5 +157,4 @@ An execution of a full pipeline run yields the following sequence (detection →
 | **Event Bus** | Redis Streams (with consumer groups + DLQ) |
 | **Sandbox** | Docker containers (simulated fallback) |
 | **Infrastructure** | Docker, Docker Compose, Kubernetes |
-| **Visualization** | Streamlit, Plotly, Grafana |
 | **Logging** | structlog (structured JSON) |

@@ -86,6 +86,22 @@ def run_startup_preflight(settings: Settings) -> PreflightResult:
     else:
         checks.append("otel_exporter")
 
+    # LLM provider credentials required when using OpenAI in non-dev
+    if settings.llm.provider.lower() == "openai":
+        openai_key = os.environ.get("OPENAI_API_KEY", "")
+        if not openai_key:
+            failures.append("openai_api_key_not_configured")
+        else:
+            checks.append("openai_api_key")
+
+    # Redis auth is mandatory in production
+    if settings.is_production:
+        redis_password = os.environ.get("REDIS_PASSWORD", "")
+        if not redis_password:
+            failures.append("redis_password_not_configured")
+        else:
+            checks.append("redis_password")
+
     # Prometheus/telemetry registry health
     telemetry_ok, telemetry_reason = telemetry_health_status()
     if not telemetry_ok:

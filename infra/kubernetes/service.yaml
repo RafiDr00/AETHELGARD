@@ -18,28 +18,6 @@ spec:
     app: aethelgard
     component: api
 
----
-# Dashboard Service
-apiVersion: v1
-kind: Service
-metadata:
-  name: aethelgard-dashboard
-  namespace: aethelgard
-  labels:
-    app: aethelgard
-    component: dashboard
-spec:
-  type: ClusterIP
-  ports:
-    - port: 80
-      targetPort: 8501
-      protocol: TCP
-      name: http
-  selector:
-    app: aethelgard
-    component: dashboard
-
----
 # Ingress (for external access)
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -47,10 +25,13 @@ metadata:
   name: aethelgard-ingress
   namespace: aethelgard
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - aethelgard.internal
+      secretName: aethelgard-tls
   rules:
     - host: aethelgard.internal
       http:
@@ -60,12 +41,5 @@ spec:
             backend:
               service:
                 name: aethelgard-api
-                port:
-                  number: 80
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: aethelgard-dashboard
                 port:
                   number: 80
