@@ -1,4 +1,4 @@
-# Aethelgard v2 — Observability Debug Runbook
+# Aethelgard — Observability Debug Runbook
 ## How to Diagnose a Failed Remediation Run
 
 This runbook explains how to trace a failed remediation from first alert to root
@@ -10,7 +10,7 @@ cause using the telemetry stack (Jaeger traces + Prometheus/Grafana metrics).
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│  Aethelgard v2                                                        │
+│  Aethelgard                                                        │
 │                                                                       │
 │  FastAPI  ──► OpenTelemetry SDK ──► OTLP ──► Jaeger (traces)         │
 │     │                                                                 │

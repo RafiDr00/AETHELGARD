@@ -1,4 +1,4 @@
-"""Aethelgard v2 — Services Package"""
+"""Aethelgard — Services Package"""
 
 from services.log_simulator import LogSimulator, DEMO_SCENARIOS
 

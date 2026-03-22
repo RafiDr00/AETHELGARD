@@ -1,1 +1,1 @@
-"""Aethelgard v2 — Tests Package"""
+"""Aethelgard — Tests Package"""

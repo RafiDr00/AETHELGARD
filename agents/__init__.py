@@ -1,4 +1,4 @@
-"""Aethelgard v2 — Agents Package"""
+"""Aethelgard — Agents Package"""
 
 from agents.base_agent import BaseAgent
 from agents.detection_agent import DetectionAgent

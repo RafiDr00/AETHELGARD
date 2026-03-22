@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Agent Orchestrator (Production-Grade)
+Aethelgard — Agent Orchestrator (Production-Grade)
 =======================================================
 
 FIXES APPLIED IN THIS VERSION:

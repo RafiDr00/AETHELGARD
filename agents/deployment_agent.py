@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Deployment Agent
+Aethelgard — Deployment Agent
 
 Autonomous deployment agent that orchestrates the rollout of
 validated patches to the target infrastructure.

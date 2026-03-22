@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Fix Verification Suite
+Aethelgard — Fix Verification Suite
 Tests all 7 architectural fixes against the live API.
 """
 import json
@@ -50,7 +50,7 @@ def post(path, body=None, api_key=None, expect_status=None):
         return e.code, {}
 
 print("\n" + "═"*60)
-print("  AETHELGARD v2 — Architecture Fix Verification Suite")
+print("  Aethelgard — Architecture Fix Verification Suite")
 print("═"*60 + "\n")
 
 # ── FIX #1: Explicit Pipeline (orchestrator) ──────────────────

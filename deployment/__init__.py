@@ -1,1 +1,1 @@
-"""Aethelgard v2 — Deployment Package"""
+"""Aethelgard — Deployment Package"""

@@ -1,4 +1,4 @@
-"""Aethelgard v2 — Event Bus Package"""
+"""Aethelgard — Event Bus Package"""
 
 from event_bus.redis_streams import RedisStreamsClient, get_event_bus, shutdown_event_bus
 

@@ -1,4 +1,4 @@
-# Aethelgard v2 — Production Validation Report
+# Aethelgard — Production Validation Report
 
 **Date:** 2026-03-10  
 **Validator:** GitHub Copilot (Claude Sonnet 4.6)  
@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-All 7 validation tasks **PASSED**. The Aethelgard v2 autonomous DevOps platform is operating correctly in its development configuration. All required API endpoints are reachable, all Prometheus telemetry metrics are emitting live data, the 5-stage autonomous pipeline ran end-to-end without unhandled exceptions, and Docker image security is enforced via a non-root container user.
+All 7 validation tasks **PASSED**. The Aethelgard autonomous DevOps platform is operating correctly in its development configuration. All required API endpoints are reachable, all Prometheus telemetry metrics are emitting live data, the 5-stage autonomous pipeline ran end-to-end without unhandled exceptions, and Docker image security is enforced via a non-root container user.
 
 ---
 
@@ -34,7 +34,7 @@ All required endpoints returned correct HTTP status codes and response bodies.
 
 | Subsystem | Status | Notes |
 |---|---|---|
-| FastAPI / uvicorn | ✅ RUNNING | Port 8001, v2.0.0 |
+| FastAPI / uvicorn | ✅ RUNNING | Port 8001, .0 |
 | RAG / Knowledge Engine | ✅ READY | `all-MiniLM-L6-v2`, FAISS AVX2, 384 dims, 5 playbooks |
 | Sandbox Executor | ✅ DOCKER AVAILABLE | `sandbox_docker_available` confirmed at startup |
 | OpenTelemetry | ✅ INSTRUMENTED | `FastAPIInstrumentor` active; spans emitted per HTTP request |

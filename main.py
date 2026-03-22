@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Application Entry Point
+Aethelgard — Application Entry Point
 
 Thin launcher: configures uvicorn and hands control to the FastAPI app.
 
@@ -26,7 +26,7 @@ from api import app
 
 
 async def start_platform() -> None:
-    """Start the Aethelgard v2 platform."""
+    """Start the Aethelgard platform."""
     settings = get_settings()
     setup_logging(log_level=settings.log_level)
     logger = get_logger("aethelgard.main")

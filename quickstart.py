@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Quick Start
+Aethelgard — Quick Start
 
 Runs the full platform demo.
 Usage:
@@ -47,7 +47,7 @@ async def run_demo_pipeline():
     console = Console(force_terminal=True)
 
     console.print(Panel.fit(
-        "[bold cyan]AETHELGARD V2[/bold cyan]\n"
+        "[bold cyan]Aethelgard[/bold cyan]\n"
         "[dim]Autonomous DevOps Platform — Quick Start[/dim]\n\n"
         "Running live demo: Payment API Latency Spike scenario",
         border_style="cyan",

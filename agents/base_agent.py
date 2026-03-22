@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Base Agent with ReAct Reasoning Loop
+Aethelgard — Base Agent with ReAct Reasoning Loop
 
 Abstract base class implementing the ReAct (Reason + Act) paradigm.
 All agents in the system inherit from this class and implement

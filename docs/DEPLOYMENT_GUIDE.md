@@ -1,4 +1,4 @@
-# Aethelgard v2 — Deployment Guide
+# Aethelgard — Deployment Guide
 
 ## Table of Contents
 1. [Prerequisites](#prerequisites)
@@ -36,7 +36,7 @@ GRAFANA_PASSWORD=<strong-grafana-password>
 # ─── Recommended in Production ────────────────────────────
 REDIS_PASSWORD=<strong-redis-password>
 GRAFANA_ROOT_URL=https://grafana.your-domain.com
-IMAGE_TAG=v2.0.0                             # pin image tag
+IMAGE_TAG=.0                             # pin image tag
 
 # ─── Optional Overrides ───────────────────────────────────
 APP_ENV=production                           # development | staging | production
@@ -113,7 +113,7 @@ python -m pytest -q --tb=short
 ```bash
 docker build -t aethelgard:$(git rev-parse --short HEAD) .
 # or tag explicitly:
-docker build -t aethelgard:v2.0.0 .
+docker build -t aethelgard:.0 .
 ```
 
 ### 2. Create the .env file

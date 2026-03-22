@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Core Configuration Management
+Aethelgard — FastAPI Interfacenagement
 
 Centralized configuration using Pydantic Settings with environment variable binding.
 Supports hierarchical configuration for all platform subsystems.
@@ -140,7 +140,7 @@ class DedupConfig(BaseSettings):
 
 class Settings(BaseSettings):
     """
-    Root configuration container for Aethelgard v2.
+    Root configuration container for Aethelgard.
     Aggregates all subsystem configurations.
     """
     model_config = SettingsConfigDict(
@@ -151,9 +151,9 @@ class Settings(BaseSettings):
     )
 
     # --- Application ---
-    app_name: str = "aethelgard-v2"
+    app_name: str = "aethelgard"
     app_env: Environment = Environment.DEVELOPMENT
-    app_version: str = "2.5.0"
+    app_version: str = "1.0.0"
     app_host: str = "127.0.0.1"
     app_port: int = 8000
     log_level: str = "INFO"

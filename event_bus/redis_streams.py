@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Redis Streams Event Bus
+Aethelgard — Redis Streams Event Bus
 
 Production-grade event bus implementation using Redis Streams with:
 - Consumer groups for reliable message delivery

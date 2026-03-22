@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Log Listener
+Aethelgard — Log Listener
 
 Listens for incoming log streams from microservices,
 parses structured data, extracts metrics, and produces

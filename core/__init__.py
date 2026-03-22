@@ -1,4 +1,4 @@
-"""Aethelgard v2 — Core Package"""
+"""Aethelgard — Core Package"""
 
 from core.config import Settings, get_settings
 from core.logging_config import get_logger, setup_logging

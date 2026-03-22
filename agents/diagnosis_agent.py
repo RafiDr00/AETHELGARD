@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Diagnosis Agent
+Aethelgard — Diagnosis Agent
 
 Root cause analysis agent that investigates detected anomalies.
 Uses RAG-augmented reasoning to query the knowledge base for

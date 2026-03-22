@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — RAG Knowledge Engine (Redesigned)
+Aethelgard — RAG Knowledge Engine (Redesigned)
 
 FIX #3: Replace MD5-hash-based embeddings with semantic embeddings.
 

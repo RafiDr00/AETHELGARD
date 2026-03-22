@@ -1,4 +1,4 @@
-"""Aethelgard v2 — Metrics Package"""
+"""Aethelgard — Metrics Package"""
 
 from metrics.metrics_engine import MetricsEngine
 

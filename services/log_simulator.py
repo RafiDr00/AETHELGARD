@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Log Simulator
+Aethelgard — Log Simulator
 
 Generates realistic microservice log streams with configurable
 anomaly injection. Simulates a cluster of services producing

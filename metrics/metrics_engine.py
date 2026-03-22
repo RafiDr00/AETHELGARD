@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Metrics Engine
+Aethelgard — Metrics Engine
 
 Computes and tracks platform performance metrics including:
 - Mean Time to Detect (MTTD)

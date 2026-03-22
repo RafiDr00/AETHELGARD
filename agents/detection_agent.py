@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Detection Agent
+Aethelgard — Detection Agent
 
 Anomaly detection agent that monitors infrastructure metrics and log streams.
 Uses statistical analysis and pattern recognition to identify deviations

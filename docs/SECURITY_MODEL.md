@@ -1,4 +1,4 @@
-# Aethelgard v2 — Security Model
+# Aethelgard — Security Model
 
 ## Table of Contents
 1. [Threat Model](#threat-model)

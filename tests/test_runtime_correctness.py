@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Runtime Correctness & Observability Test Suite
+Aethelgard — Runtime Correctness & Observability Test Suite
 ===============================================================
 
 Sections:

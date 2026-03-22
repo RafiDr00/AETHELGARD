@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Remediation Agent
+Aethelgard — Remediation Agent
 
 Generates infrastructure patches based on diagnosis results.
 Uses RAG-augmented knowledge to produce contextually appropriate fixes

@@ -1,8 +1,7 @@
 """
-Aethelgard v2.5 — FastAPI REST API (Production-Grade)
+Aethelgard — FastAPI Interface
 
-The core API layer for the Aethelgard Autonomous Incident Response platform.
-Manages versioned routing, observability telemetry, and event orchestration.
+Core API layer for automated incident response orchestration.
 """
 
 from __future__ import annotations
@@ -543,7 +542,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Aethelgard v2 — Autonomous DevOps Platform",
+    title="Aethelgard — Autonomous DevOps Platform",
     description=(
         "AI-native infrastructure intelligence platform.\n\n"
         "**Authentication**: Write endpoints require `X-API-Key` header.\n"
@@ -649,7 +648,7 @@ def _get_state(key: str):
 @app.get("/", tags=["Root"])
 async def root():
     return {
-        "name": "Aethelgard v2",
+        "name": "Aethelgard",
         "description": "Autonomous DevOps Platform",
         "version": settings.app_version,
         "docs": "/docs",

@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Agent Test Suite
+Aethelgard — Agent Test Suite
 
 Comprehensive tests for the multi-agent remediation pipeline.
 """

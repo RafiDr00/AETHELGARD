@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Observability Layer
+Aethelgard — Observability Layer
 =====================================
 
 Architecture:

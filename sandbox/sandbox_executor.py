@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Sandbox Executor (Container-Enforced)
+Aethelgard — Sandbox Executor (Container-Enforced)
 
 Security contract:
     - Patch execution is permitted ONLY inside a Docker container.

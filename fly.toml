@@ -1,4 +1,4 @@
-# Aethelgard v2.5 — Fly.io Deployment Configuration
+# Aethelgard  — Fly.io Deployment Configuration
 # Stateless FastAPI service with managed Redis
 
 app = "aethelgard-api"

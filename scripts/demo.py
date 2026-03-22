@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Live Demo Runner
+Aethelgard — Live Demo Runner
 
 Runs a complete autonomous remediation demonstration:
 
@@ -48,12 +48,12 @@ def print_header():
     """Print the demo header."""
     console.print()
     console.print(Panel.fit(
-        "[bold cyan]AETHELGARD V2.5[/bold cyan]\n"
-        "[dim]Autonomous DevOps Platform — Live Demo[/dim]\n\n"
-        "[yellow]Scenario:[/yellow] Payment API Latency Spike\n"
-        "[yellow]Target:[/yellow] Complete autonomous remediation < 60 seconds",
+        "[bold cyan]AETHELGARD[/bold cyan]\n"
+        "[dim]Engineering Demo — Incident Response Simulation[/dim]\n\n"
+        "[yellow]Scenario:[/yellow] Service Latency Spike\n"
+        "[yellow]Status:[/yellow] Running autonomous diagnostics",
         border_style="cyan",
-        title="[bold]Live Demo[/bold]",
+        title="[bold]RECOVERY LOG[/bold]",
         subtitle="[dim]Press Ctrl+C to abort[/dim]",
     ))
     console.print()
@@ -274,7 +274,7 @@ async def run_multi_scenario_demo():
 
     setup_logging(log_level="WARNING")
     console.print(Panel.fit(
-        "[bold cyan]AETHELGARD V2.5 — Multi-Scenario Demo[/bold cyan]\n"
+        "[bold cyan]AETHELGARD  — Multi-Scenario Demo[/bold cyan]\n"
         "[dim]Running all anomaly scenarios to demonstrate learning[/dim]",
         border_style="cyan",
     ))
@@ -335,7 +335,7 @@ def main():
     """Main demo entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Aethelgard v2 — Demo Runner")
+    parser = argparse.ArgumentParser(description="Aethelgard — Demo Runner")
     parser.add_argument("--multi", action="store_true", help="Run all scenarios")
     args = parser.parse_args()
 

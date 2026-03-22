@@ -1,4 +1,4 @@
-# Aethelgard v2 — System Architecture
+# Aethelgard — System Architecture
 
 ## Table of Contents
 1. [Overview](#overview)
@@ -17,7 +17,7 @@ Aethelgard is a **multi-agent AIOps platform** that ingests telemetry from runni
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                         Aethelgard v2                                  │
+│                         Aethelgard                                  │
 │                                                                        │
 │  ┌──────────┐    ┌─────────────────────────────────────────────────┐  │
 │  │ REST API │───▶│                Agent Orchestrator               │  │

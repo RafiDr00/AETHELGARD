@@ -1,4 +1,4 @@
-"""Aethelgard v2 — Knowledge Package"""
+"""Aethelgard — Knowledge Package"""
 
 from knowledge.rag_engine import RAGEngine
 

@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Core Domain Models
+Aethelgard — Core Domain Models
 
 Pydantic models representing the core domain entities across the platform.
 These models are used for event serialization, agent communication,

@@ -1,4 +1,4 @@
-# Aethelgard v2 — Operations Runbook
+# Aethelgard — Operations Runbook
 
 ## Table of Contents
 1. [Service Health Checks](#service-health-checks)
@@ -298,7 +298,7 @@ python -m pytest -q --tb=short
 # Pull latest patch versions
 docker pull python:3.11-slim
 docker pull redis:7-alpine
-docker pull prom/prometheus:v2.51.0
+docker pull prom/prometheus:1.0
 docker pull grafana/grafana:10.4.0
 
 # Rebuild

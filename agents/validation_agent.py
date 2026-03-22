@@ -1,5 +1,5 @@
 """
-Aethelgard v2 — Validation Agent
+Aethelgard — Validation Agent
 
 Validates generated patches through a multi-stage safety pipeline:
 1. Static code analysis
