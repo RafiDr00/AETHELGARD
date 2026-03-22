@@ -9,8 +9,19 @@ export function clamp(value, min, max) {
 export function updateMetric(id, barId, value, max, decimals = 1) {
   const el = document.getElementById(id);
   const bar = document.getElementById(barId);
-  if (el) el.textContent = Number(value).toFixed(decimals);
-  if (bar) bar.style.width = `${clamp((value / max) * 100, 0, 100)}%`;
+  if (el) {
+    const newVal = value === 0 ? '—' : Number(value).toFixed(decimals);
+    if (el.textContent !== newVal) {
+      el.style.opacity = '0.1';
+      setTimeout(() => {
+        el.textContent = newVal;
+        el.style.opacity = '1';
+      }, 80);
+    }
+  }
+  if (bar) {
+    bar.style.width = `${clamp((value / max) * 100, 0, 100)}%`;
+  }
 }
 
 export function pushHistory(history, key, value) {

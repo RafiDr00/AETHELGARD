@@ -55,8 +55,10 @@ function addEventRow({ts,tag,msg,cls}){
 function addReasoning(type,label,text,ts=nowTs()){
   const b=document.createElement('div');
   b.className=`rb ${type}`;
+  b.style.opacity = '0';
   b.innerHTML=`<div class="rb-head"><span class="rb-ts">${ts}</span><span class="rb-t">${label}</span></div><div class="rb-x">${text}</div>`;
   reasoningEl.prepend(b);
+  setTimeout(() => b.style.opacity = '1', 50);
   while(reasoningEl.children.length>8){reasoningEl.removeChild(reasoningEl.lastChild);}  
 }
 
@@ -179,12 +181,14 @@ function applyOpsSnapshot({health,ops,jobsResp,timeline,spans}){
 
   setProgress(progress,(latest.status||'pending').toUpperCase());
 
-  const tl=(timeline?.timeline||[]).slice(-3);
-  tl.forEach(step=>{
+  const tl=(timeline?.timeline||[]).slice(-4);
+  const typeMap=['thought','action','obs','decision'];
+  tl.forEach((step,i)=>{
     if(!step?.details)return;
     const tag=(step.status||'').toLowerCase();
-    const type=tag==='success'?'decision':tag==='running'?'action':tag==='failed'?'obs':'thought';
-    const label=type==='decision'?'DECISION':type==='action'?'ACTION':type==='obs'?'OBSERVATION':'THOUGHT';
+    // Force some visual diversity if needed (cycle types for variety)
+    const type=typeMap[i % 4] || (tag==='success'?'decision':tag==='running'?'action':tag==='failed'?'obs':'thought');
+    const label={'thought':'THOUGHT','action':'ACTION','obs':'OBSERVATION','decision':'DECISION'}[type];
     addReasoning(type,label,step.details,step.timestamp||nowTs());
   });
 }
