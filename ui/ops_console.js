@@ -261,7 +261,7 @@ function startOpsRealtime(){
 
 function startLogStream(){
   try{
-    const es=new EventSource('/api/v1/log-stream?burst=1&interval_ms=1200');
+    const es=new EventSource(`${getApiBaseUrl()}/api/v1/log-stream?burst=1&interval_ms=1200`);
     es.onmessage=(e)=>{
       try{
         const p=JSON.parse(e.data);

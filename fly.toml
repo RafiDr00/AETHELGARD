@@ -12,6 +12,7 @@ PORT = "8000"
 APP_HOST = "0.0.0.0"
 APP_ENV = "production"
 PYTHONUNBUFFERED = "1"
+AETHELGARD_CORS_ORIGINS = "https://aethelgard-ui.fly.dev,https://aethelgard-api.fly.dev"
 
 [[services]]
 internal_port = 8000

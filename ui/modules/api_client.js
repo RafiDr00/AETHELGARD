@@ -1,18 +1,8 @@
-// Detect API URL from window config or environment
-const computeApiBaseUrl = () => {
-  // First check if window.AETHELGARD_API_URL is set (injected at build/deploy time)
-  if (typeof window !== 'undefined' && window.AETHELGARD_API_URL) {
-    return window.AETHELGARD_API_URL;
-  }
-  // Try to read from window.location if not set (for local development)
-  if (typeof window !== 'undefined') {
-    return `${window.location.protocol}//${window.location.host}`;
-  }
-  return 'https://aethelgard-api.fly.dev';
-};
-
+// Detect API URL from window config or hard-coded production fallback
 export function getApiBaseUrl() {
-  return computeApiBaseUrl();
+  return (typeof window !== 'undefined' && window.AETHELGARD_API_URL)
+    ? window.AETHELGARD_API_URL
+    : 'https://aethelgard-api.fly.dev';
 }
 
 
@@ -53,7 +43,7 @@ export async function ensureApiKey(message) {
 }
 
 export async function apiGet(path) {
-  const url = `${computeApiBaseUrl()}${path}`;
+  const url = `${getApiBaseUrl()}${path}`;
   let response = await fetch(url, { headers: buildApiHeaders({ Accept: 'application/json' }) });
   logRequestId(response);
 
@@ -70,7 +60,7 @@ export async function apiGet(path) {
 }
 
 export async function apiPost(path) {
-  const url = `${computeApiBaseUrl()}${path}`;
+  const url = `${getApiBaseUrl()}${path}`;
   let response = await fetch(url, { method: 'POST', headers: buildApiHeaders() });
   logRequestId(response);
 
