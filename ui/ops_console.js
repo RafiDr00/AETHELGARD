@@ -52,14 +52,31 @@ function addEventRow({ts,tag,msg,cls}){
   document.getElementById('ev-cnt').textContent=String(eventCount).padStart(3,'0')+' EVENTS';
 }
 
+function typewrite(el, text, cb) {
+  let i=0;
+  const tw=document.createElement('span');
+  const cur=document.createElement('span');cur.className='cursor-b';
+  el.appendChild(tw);el.appendChild(cur);
+  function tick(){
+    if(i<text.length){
+      tw.textContent+=text[i++];
+      setTimeout(tick, i<4?50:i<12?22:10);
+    } else {
+      cur.remove();
+      if(cb) setTimeout(cb,700);
+    }
+  }
+  tick();
+}
+
 function addReasoning(type,label,text,ts=nowTs()){
   const b=document.createElement('div');
   b.className=`rb ${type}`;
-  b.style.opacity = '0';
-  b.innerHTML=`<div class="rb-head"><span class="rb-ts">${ts}</span><span class="rb-t">${label}</span></div><div class="rb-x">${text}</div>`;
+  b.innerHTML=`<div class="rb-head"><span class="rb-ts">${ts}</span><span class="rb-type">${label}</span></div><div class="rb-txt"></div>`;
   reasoningEl.prepend(b);
-  setTimeout(() => b.style.opacity = '1', 50);
-  while(reasoningEl.children.length>8){reasoningEl.removeChild(reasoningEl.lastChild);}  
+  const tx=b.querySelector('.rb-txt');
+  typewrite(tx, text);
+  while(reasoningEl.children.length>5){reasoningEl.removeChild(reasoningEl.lastChild);}  
 }
 
 function setNode(idx,state,top1,top2,bottom,duration){
@@ -69,22 +86,25 @@ function setNode(idx,state,top1,top2,bottom,duration){
   const vB=document.getElementById(`v${idx}b`);
   const t=document.getElementById(`t${idx}`);
   const nd=document.getElementById(`nd${idx}`);
-  if(!node||!label||!vA||!vB||!t||!nd)return;
+  if(!node)return;
 
   node.className=`node ${state}`;
-  if(state==='success'){label.style.color='var(--ok)';}
-  else if(state==='running'){label.style.color='var(--p)';}
-  else if(state==='fail'){label.style.color='var(--err)';}
-  else{label.style.color='var(--t3)';}
+  if(label){
+    if(state==='success'){label.style.color='var(--ok)';}
+    else if(state==='running'){label.style.color='var(--p)';}
+    else if(state==='fail'){label.style.color='var(--err)';}
+    else{label.style.color='var(--t2)';}
+  }
 
-  vA.textContent=top1||'—';
-  vB.textContent=top2||'—';
-  t.textContent=bottom||'—';
-  nd.textContent=duration||'—';
+  if(vA) vA.textContent=top1||'—';
+  if(vB) vB.textContent=top2||'—';
+  if(t)  t.textContent=bottom||'—';
+  if(nd) nd.textContent=duration||'—';
 
-  vA.className='nd-v'+(state==='running'?' live':state==='success'?' done':'');
-  vB.className='nd-v'+(state==='running'?' live':state==='success'?' done':'');
-  t.className='nd-v'+(state==='running'?' live':state==='success'?' done':'');
+  const cl=(state==='running'?' live':state==='success'?' done':'');
+  if(vA) vA.className='nd-v'+cl;
+  if(vB) vB.className='nd-v'+cl;
+  if(t)  t.className='nd-v'+cl;
 }
 
 function setProgress(pct,status){
