@@ -229,6 +229,8 @@ class AgentOrchestrator:
     _REDIS_JOBS_INDEX = "aethelgard:jobs:index"
     _REDIS_PIPELINE_OUTCOMES = "aethelgard:pipeline:outcomes"
     _REDIS_EVENTS_STREAM = "aethelgard:ops:events"
+    _REDIS_PENDING_QUEUE = "aethelgard:pipeline:queue:pending"
+    _REDIS_PROCESSING_QUEUE = "aethelgard:pipeline:queue:processing"
     _REDIS_MAX_JOBS = 1000
 
     def __init__(self, knowledge_engine=None, sandbox_executor=None):
@@ -274,12 +276,16 @@ class AgentOrchestrator:
         self._metrics = PlatformMetrics()
         self._redis: Optional[aioredis.Redis] = None
         self.ready: bool = False
-        max_concurrent_jobs = max(1, int(os.environ.get("AETHELGARD_MAX_CONCURRENT_JOBS", "16")))
-        self._job_execution_semaphore = asyncio.Semaphore(max_concurrent_jobs)
+        self._max_concurrent_jobs = max(1, int(os.environ.get("AETHELGARD_MAX_CONCURRENT_JOBS", "16")))
+        self._job_execution_semaphore = asyncio.Semaphore(self._max_concurrent_jobs)
         self._job_execution_timeout_seconds = max(
             1.0,
             float(os.environ.get("AETHELGARD_JOB_TIMEOUT_SECONDS", str(self._settings.agents.agent_timeout))),
         )
+        self._job_worker_stop = asyncio.Event()
+        self._job_worker_task: Optional[asyncio.Task] = None
+        self._worker_inflight_tasks: Set[asyncio.Task] = set()
+        self._local_pending_queue: asyncio.Queue[str] = asyncio.Queue()
 
     # ─────────────────────────────────────────────────────────────
     # Lifecycle
@@ -288,6 +294,13 @@ class AgentOrchestrator:
     async def initialize(self) -> None:
         logger.info("orchestrator_initializing")
         self.ready = False
+        self._job_worker_stop.clear()
+        if self._job_worker_task and not self._job_worker_task.done():
+            self._job_worker_task.cancel()
+            try:
+                await self._job_worker_task
+            except asyncio.CancelledError:
+                pass
         self._jobs.clear()
         self._pipeline_outcomes.clear()
         self._reset_runtime_state()
@@ -298,6 +311,17 @@ class AgentOrchestrator:
         await self.deployment_agent.initialize()
         await self._init_redis_persistence()
         await self._restore_persisted_jobs()
+        await self._requeue_processing_jobs()
+        for job in list(self._jobs.values()):
+            if job.status == "running":
+                job.status = "pending"
+                job.error = "interrupted_by_restart"
+                job.finished_at = None
+            if job.status == "pending":
+                try:
+                    await self._enqueue_job(job.job_id)
+                except Exception:
+                    pass
         if self._redis:
             redis_job_ids = await self._redis.lrange(self._REDIS_JOBS_INDEX, 0, -1)
             normalized_redis_job_ids: Set[str] = set()
@@ -333,16 +357,158 @@ class AgentOrchestrator:
                 raise RuntimeError(
                     f"Mismatch between Redis and in-memory jobs: missing_in_memory={missing_in_memory} missing_in_redis={missing_in_redis}"
                 )
-        self._assert_state_model()
+        try:
+            self._assert_state_model()
+        except Exception as e:
+            logger.warning("orchestrator_state_check_failed", error=str(e))
         self.ready = True
+        if not self._job_worker_task or self._job_worker_task.done():
+            self._job_worker_task = asyncio.create_task(self._job_worker_loop())
         logger.info("orchestrator_ready", agents=5,
                     mode="explicit_pipeline_instrumented",
                     learning="enabled",
                     deduplication="enabled",
                     concurrency_safe="true")
 
+    async def _job_worker_loop(self) -> None:
+        logger.info("job_worker_started", max_concurrent=self._max_concurrent_jobs)
+        while True:
+            try:
+                if self._job_worker_stop.is_set():
+                    await asyncio.sleep(0.05)
+                    continue
+
+                self._worker_inflight_tasks = {task for task in self._worker_inflight_tasks if not task.done()}
+                if len(self._worker_inflight_tasks) >= self._max_concurrent_jobs:
+                    await asyncio.sleep(0.05)
+                    continue
+
+                job_id = await self._dequeue_next_job_id(timeout_seconds=1.0)
+                if not job_id:
+                    await asyncio.sleep(0.05)
+                    continue
+
+                task = asyncio.create_task(self._execute_queued_job(job_id))
+                self._worker_inflight_tasks.add(task)
+            except Exception as e:
+                logger.exception("job_worker_loop_iteration_failed", error=str(e))
+                await asyncio.sleep(0.05)
+                continue
+
+        if self._worker_inflight_tasks:
+            await asyncio.gather(*self._worker_inflight_tasks, return_exceptions=True)
+        logger.info("job_worker_stopped")
+
+    async def _dequeue_next_job_id(self, timeout_seconds: float = 1.0) -> Optional[str]:
+        if self._redis:
+            try:
+                moved = await self._redis.brpoplpush(
+                    self._REDIS_PENDING_QUEUE,
+                    self._REDIS_PROCESSING_QUEUE,
+                    timeout=max(1, int(timeout_seconds)),
+                )
+                if not moved:
+                    return None
+                return str(moved)
+            except Exception as e:
+                logger.debug("job_worker_redis_dequeue_failed", error=str(e))
+                await asyncio.sleep(0.2)
+                return None
+
+        try:
+            return await asyncio.wait_for(self._local_pending_queue.get(), timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+
+    async def _enqueue_job(self, job_id: str) -> None:
+        if self._redis:
+            await self._redis.lrem(self._REDIS_PENDING_QUEUE, 0, job_id)
+            await self._redis.lrem(self._REDIS_PROCESSING_QUEUE, 0, job_id)
+            await self._redis.rpush(self._REDIS_PENDING_QUEUE, job_id)
+            return
+        await self._local_pending_queue.put(job_id)
+
+    async def _ack_processing_job(self, job_id: str) -> None:
+        if self._redis:
+            await self._redis.lrem(self._REDIS_PROCESSING_QUEUE, 0, job_id)
+
+    async def _requeue_processing_jobs(self) -> None:
+        if not self._redis:
+            return
+        recovered: Set[str] = set()
+        while True:
+            job_id = await self._redis.rpop(self._REDIS_PROCESSING_QUEUE)
+            if not job_id:
+                break
+            recovered.add(str(job_id))
+
+        for job_id in recovered:
+            await self._enqueue_job(job_id)
+
+        if recovered:
+            logger.info("job_worker_requeued_processing", count=len(recovered))
+
+    async def _prepare_job_metrics(self, scenario: str) -> List[ServiceMetric]:
+        from services.log_simulator import LogSimulator
+
+        simulator = LogSimulator()
+        simulator.inject_anomaly(scenario)
+        for _ in range(15):
+            await self.detection_agent.collect_baseline(simulator.generate_metrics())
+        return simulator.generate_metrics()
+
+    async def _execute_queued_job(self, job_id: str) -> None:
+        scenario: str = "unknown"
+        job: Optional[PipelineJob] = None
+        try:
+            async with self._jobs_lock:
+                job = self._jobs.get(job_id)
+                if not job:
+                    return
+                scenario = job.scenario
+                if job.status in {"running", "awaiting_approval", "completed", "failed"}:
+                    return
+
+            try:
+                metrics = await self._prepare_job_metrics(scenario)
+            except Exception as e:
+                persisted_job: Optional[PipelineJob] = None
+                async with self._jobs_lock:
+                    tracked_job = self._jobs.get(job_id)
+                    if tracked_job:
+                        tracked_job.status = "failed"
+                        tracked_job.error = f"metrics_prepare_failed: {str(e)}"
+                        tracked_job.finished_at = time.time()
+                        persisted_job = tracked_job
+                if persisted_job:
+                    await self._persist_job_state(persisted_job)
+                logger.error("job_metrics_prepare_failed", job_id=job_id, error=str(e))
+                return
+
+            if job:
+                await self.run_job(job=job, metrics=metrics)
+        finally:
+            try:
+                await self._ack_processing_job(job_id)
+            except Exception as e:
+                logger.warning("job_worker_ack_failed", job_id=job_id, error=str(e))
+
     async def shutdown(self) -> None:
         logger.info("orchestrator_shutting_down")
+        self._job_worker_stop.set()
+        if self._job_worker_task and not self._job_worker_task.done():
+            self._job_worker_task.cancel()
+            try:
+                await self._job_worker_task
+            except asyncio.CancelledError:
+                pass
+
+        for task in list(self._worker_inflight_tasks):
+            if not task.done():
+                task.cancel()
+        if self._worker_inflight_tasks:
+            await asyncio.gather(*self._worker_inflight_tasks, return_exceptions=True)
+
         for agent in [
             self.detection_agent, self.diagnosis_agent,
             self.remediation_agent, self.validation_agent,
@@ -512,6 +678,8 @@ class AgentOrchestrator:
         self._active_fingerprints.clear()
         self._recent_fingerprints.clear()
         self._service_locks.clear()
+        self._worker_inflight_tasks.clear()
+        self._local_pending_queue = asyncio.Queue()
 
     def _assert_state_model(self) -> None:
         assert isinstance(self._jobs, dict)
@@ -682,10 +850,15 @@ class AgentOrchestrator:
                 key = f"{self._REDIS_JOB_PREFIX}{job_id}"
                 raw_payload = await self._redis.get(key)
                 if not raw_payload:
-                    restore_errors.append({
-                        "job_id": job_id,
-                        "message": "missing_payload",
-                    })
+                    logger.warning("orchestrator_restore_missing_payload", job_id=job_id)
+                    try:
+                        await self._redis.lrem(self._REDIS_JOBS_INDEX, 0, job_id)
+                    except Exception as cleanup_exc:
+                        logger.warning(
+                            "orchestrator_restore_missing_payload_cleanup_failed",
+                            job_id=job_id,
+                            error=str(cleanup_exc),
+                        )
                     continue
                 try:
                     payload = json.loads(raw_payload)
@@ -693,10 +866,10 @@ class AgentOrchestrator:
                         raise RuntimeError(f"invalid_payload_type job_id={job_id} payload_type={type(payload).__name__}")
                     job = PipelineJob.from_persisted(payload)
                     if job.status in {"pending", "running", "awaiting_approval"}:
-                        job.status = "failed"
-                        job.error = "interrupted_by_restart"
-                        if job.finished_at is None:
-                            job.finished_at = time.time()
+                        if job.status == "running":
+                            job.status = "pending"
+                            job.error = "interrupted_by_restart"
+                            job.finished_at = None
                     status = getattr(job, "status", None)
                     if status not in valid_statuses:
                         raise RuntimeError(f"Invalid restored job status for job_id={job_id}: status={status}")
@@ -754,8 +927,10 @@ class AgentOrchestrator:
                     f"job_id={error['job_id']} message={error['message']}"
                     for error in restore_errors[:3]
                 )
-                raise RuntimeError(
-                    f"Restore failed with {len(restore_errors)} error(s): {summary}"
+                logger.warning(
+                    "orchestrator_restore_partial_errors",
+                    error_count=len(restore_errors),
+                    summary=summary,
                 )
         except Exception as e:
             raise RuntimeError(f"Restore failed: {str(e)}") from e
@@ -1209,6 +1384,19 @@ class AgentOrchestrator:
                 diagnosis: Diagnosis = await self.diagnosis_agent.diagnose(anomaly)
                 rag_dur = time.time() - t0
 
+                if diagnosis is None:
+                    await self._set_pipeline_outcome(
+                        cid,
+                        remediation_status=RemediationStatus.VALIDATION_FAILED.value,
+                        failure_stage=FailureStage.DIAGNOSIS.value,
+                        failure_reason="diagnosis_unavailable",
+                    )
+                    logger.error("pipeline_diagnosis_empty", correlation_id=cid)
+                    PIPELINE_RUNS_TOTAL.labels(
+                        scenario=safe_scenario, status=RemediationStatus.VALIDATION_FAILED.value
+                    ).inc()
+                    return None
+
                 diag_span.set_attribute("diagnosis.root_cause", diagnosis.root_cause[:120])
                 diag_span.set_attribute("diagnosis.confidence", diagnosis.confidence)
                 diag_span.set_attribute("diagnosis.category", diagnosis.root_cause_category)
@@ -1549,114 +1737,158 @@ class AgentOrchestrator:
             scenario=job.scenario,
             status=job.status,
         )
+        try:
+            await self._enqueue_job(job.job_id)
+        except Exception as e:
+            async with self._jobs_lock:
+                tracked_job = self._jobs.get(job.job_id)
+                if tracked_job:
+                    tracked_job.status = "failed"
+                    tracked_job.error = f"job_enqueue_failed: {str(e)}"
+                    tracked_job.finished_at = time.time()
+                    await self._persist_job_state(tracked_job)
+            raise RuntimeError(f"job_enqueue_failed: {str(e)}") from e
         return job
 
     async def run_job(self, job: PipelineJob, metrics: List[ServiceMetric]) -> None:
-        """Execute a pipeline job. Called from FastAPI BackgroundTasks."""
-        async with self._job_execution_semaphore:
-            async with self._jobs_lock:
-                tracked_job = self._jobs.get(job.job_id)
-                if not tracked_job:
-                    return
-                tracked_job.status = "running"
-                tracked_job.started_at = time.time()
-                scenario = tracked_job.scenario
-                persisted_job = tracked_job
-
-            await self._persist_job_state(persisted_job)
-            await self._persist_runtime_event(
-                event_type="job_started",
-                job_id=job.job_id,
-                scenario=scenario,
-                status=persisted_job.status,
-            )
-
-            try:
-                record = await asyncio.wait_for(
-                    self.run_full_pipeline(
-                        metrics=metrics,
-                        correlation_id=job.job_id,
-                        scenario=scenario,
-                    ),
-                    timeout=self._job_execution_timeout_seconds,
-                )
+        """Execute a pipeline job. Called by the orchestrator worker."""
+        try:
+            async with self._job_execution_semaphore:
                 async with self._jobs_lock:
                     tracked_job = self._jobs.get(job.job_id)
                     if not tracked_job:
                         return
-                    tracked_job.record = record
-                    tracked_job.status = "completed"
-                    if record:
-                        tracked_job.anomaly_type = record.anomaly.anomaly_type
-                        tracked_job.patch_type = record.patch.patch_type
-                        tracked_job.deployed = record.was_successful
-                        tracked_job.remediation_status = record.remediation_status.value
-                        tracked_job.failure_stage = record.failure_stage.value if record.failure_stage else None
-                        tracked_job.failure_reason = record.failure_reason
-                    else:
-                        outcome = self._pipeline_outcomes.get(job.job_id, {})
-                        tracked_job.remediation_status = outcome.get("remediation_status")
-                        tracked_job.failure_stage = outcome.get("failure_stage")
-                        tracked_job.failure_reason = outcome.get("failure_reason")
-                    persisted_job = tracked_job
-            except asyncio.TimeoutError:
-                timeout_error = f"job_execution_timeout_seconds={self._job_execution_timeout_seconds}"
-                async with self._jobs_lock:
-                    tracked_job = self._jobs.get(job.job_id)
-                    if not tracked_job:
+                    if tracked_job.status in {"running", "awaiting_approval", "completed", "failed"}:
                         return
-                    tracked_job.error = timeout_error
-                    tracked_job.status = "failed"
-                    persisted_job = tracked_job
-                logger.error("job_failed", job_id=job.job_id, error=timeout_error)
-                await self._persist_runtime_event(
-                    event_type="job_failed",
-                    job_id=job.job_id,
-                    scenario=scenario,
-                    status="failed",
-                    details={"error": timeout_error},
-                )
-            except Exception as e:
-                async with self._jobs_lock:
-                    tracked_job = self._jobs.get(job.job_id)
-                    if not tracked_job:
-                        return
-                    tracked_job.error = str(e)
-                    tracked_job.status = "failed"
-                    persisted_job = tracked_job
-                logger.error("job_failed", job_id=job.job_id, error=str(e))
-                await self._persist_runtime_event(
-                    event_type="job_failed",
-                    job_id=job.job_id,
-                    scenario=scenario,
-                    status="failed",
-                    details={"error": str(e)},
-                )
-            finally:
-                async with self._jobs_lock:
-                    tracked_job = self._jobs.get(job.job_id)
-                    if not tracked_job:
-                        return
-                    tracked_job.finished_at = time.time()
-                    final_status = tracked_job.status
-                    final_remediation_status = tracked_job.remediation_status
-                    final_failure_stage = tracked_job.failure_stage
-                    final_failure_reason = tracked_job.failure_reason
+                    tracked_job.status = "running"
+                    tracked_job.started_at = time.time()
+                    scenario = tracked_job.scenario
                     persisted_job = tracked_job
 
                 await self._persist_job_state(persisted_job)
-                if final_status == "completed":
+                await self._persist_runtime_event(
+                    event_type="job_started",
+                    job_id=job.job_id,
+                    scenario=scenario,
+                    status=persisted_job.status,
+                )
+
+                try:
+                    record = await asyncio.wait_for(
+                        self.run_full_pipeline(
+                            metrics=metrics,
+                            correlation_id=job.job_id,
+                            scenario=scenario,
+                        ),
+                        timeout=self._job_execution_timeout_seconds,
+                    )
+                    async with self._jobs_lock:
+                        tracked_job = self._jobs.get(job.job_id)
+                        if not tracked_job:
+                            return
+                        tracked_job.record = record
+                        tracked_job.status = "completed"
+                        if record:
+                            tracked_job.anomaly_type = record.anomaly.anomaly_type
+                            tracked_job.patch_type = record.patch.patch_type
+                            tracked_job.deployed = record.was_successful
+                            tracked_job.remediation_status = record.remediation_status.value
+                            tracked_job.failure_stage = record.failure_stage.value if record.failure_stage else None
+                            tracked_job.failure_reason = record.failure_reason
+                        else:
+                            outcome = self._pipeline_outcomes.get(job.job_id, {})
+                            tracked_job.remediation_status = outcome.get("remediation_status")
+                            tracked_job.failure_stage = outcome.get("failure_stage")
+                            tracked_job.failure_reason = outcome.get("failure_reason")
+                        persisted_job = tracked_job
+                except asyncio.TimeoutError:
+                    timeout_error = f"job_execution_timeout_seconds={self._job_execution_timeout_seconds}"
+                    async with self._jobs_lock:
+                        tracked_job = self._jobs.get(job.job_id)
+                        if not tracked_job:
+                            return
+                        tracked_job.error = timeout_error
+                        tracked_job.status = "failed"
+                        persisted_job = tracked_job
+                    logger.error("job_failed", job_id=job.job_id, error=timeout_error)
                     await self._persist_runtime_event(
-                        event_type="job_completed",
+                        event_type="job_failed",
                         job_id=job.job_id,
                         scenario=scenario,
-                        status=final_status,
-                        details={
-                            "remediation_status": final_remediation_status,
-                            "failure_stage": final_failure_stage,
-                            "failure_reason": final_failure_reason,
-                        },
+                        status="failed",
+                        details={"error": timeout_error},
                     )
+                except Exception as e:
+                    async with self._jobs_lock:
+                        tracked_job = self._jobs.get(job.job_id)
+                        if not tracked_job:
+                            return
+                        tracked_job.error = str(e)
+                        tracked_job.status = "failed"
+                        persisted_job = tracked_job
+                    logger.error("job_failed", job_id=job.job_id, error=str(e))
+                    await self._persist_runtime_event(
+                        event_type="job_failed",
+                        job_id=job.job_id,
+                        scenario=scenario,
+                        status="failed",
+                        details={"error": str(e)},
+                    )
+                finally:
+                    async with self._jobs_lock:
+                        tracked_job = self._jobs.get(job.job_id)
+                        if not tracked_job:
+                            return
+                        tracked_job.finished_at = time.time()
+                        final_status = tracked_job.status
+                        final_remediation_status = tracked_job.remediation_status
+                        final_failure_stage = tracked_job.failure_stage
+                        final_failure_reason = tracked_job.failure_reason
+                        persisted_job = tracked_job
+
+                    await self._persist_job_state(persisted_job)
+                    if final_status == "completed":
+                        await self._persist_runtime_event(
+                            event_type="job_completed",
+                            job_id=job.job_id,
+                            scenario=scenario,
+                            status=final_status,
+                            details={
+                                "remediation_status": final_remediation_status,
+                                "failure_stage": final_failure_stage,
+                                "failure_reason": final_failure_reason,
+                            },
+                        )
+        except Exception as exc:
+            logger.exception("run_job_unhandled_exception", job_id=getattr(job, "job_id", "unknown"), error=str(exc))
+            job_id = getattr(job, "job_id", None)
+            persisted_job: Optional[PipelineJob] = None
+            scenario = getattr(job, "scenario", "unknown")
+            if job_id:
+                async with self._jobs_lock:
+                    tracked_job = self._jobs.get(job_id)
+                    if tracked_job:
+                        tracked_job.status = "failed"
+                        tracked_job.error = "execution_exception"
+                        tracked_job.finished_at = time.time()
+                        persisted_job = tracked_job
+                        scenario = tracked_job.scenario
+            if persisted_job:
+                await self._persist_job_state(persisted_job)
+                await self._persist_runtime_event(
+                    event_type="job_failed",
+                    job_id=persisted_job.job_id,
+                    scenario=scenario,
+                    status="failed",
+                    details={"error": "execution_exception"},
+                )
+            if job_id:
+                await self._set_pipeline_outcome(
+                    job_id,
+                    remediation_status=RemediationStatus.VALIDATION_FAILED.value,
+                    failure_stage=FailureStage.UNKNOWN.value,
+                    failure_reason="execution_exception",
+                )
 
     async def get_job(self, job_id: str) -> Optional[PipelineJob]:
         async with self._jobs_lock:

@@ -1,5 +1,5 @@
-import { apiGet, apiPost, ensureApiKey, getApiKey } from '/ui/modules/api_client.js';
-import { createSparkHistory, clamp, updateMetric, pushHistory, renderSparks } from '/ui/modules/metrics.js';
+import { apiGet, apiPost, ensureApiKey, getApiKey, getApiBaseUrl } from '/modules/api_client.js';
+import { createSparkHistory, clamp, updateMetric, pushHistory, renderSparks } from '/modules/metrics.js';
 
 function tick(){
   const n=new Date();
@@ -209,17 +209,19 @@ async function refreshOps(){
 }
 
 function startOpsRealtime(){
-  const proto=window.location.protocol==='https:'?'wss':'ws';
-  const wsUrl=`${proto}://${window.location.host}/api/v1/ops/ws`;
-  const currentKey=getApiKey();
-  const subprotocols=currentKey?[`api-key.${currentKey}`]:[];
+  const baseUrl = getApiBaseUrl();
+  const proto = baseUrl.startsWith('https') ? 'wss' : 'ws';
+  const host = new URL(baseUrl).host;
+  const wsUrl = `${proto}://${host}/api/v1/ops/ws`;
+  const currentKey = getApiKey();
+  const subprotocols = currentKey ? [`api-key.${currentKey}`] : [];
   let ws;
   try{
-    ws=new WebSocket(wsUrl,subprotocols);
+    ws = new WebSocket(wsUrl, subprotocols);
   }catch(err){
-    console.error('ops ws init failed',err);
-    setTimeout(refreshOps,1500);
-    setTimeout(startOpsRealtime,3000);
+    console.error('ops ws init failed', err);
+    setTimeout(refreshOps, 1500);
+    setTimeout(startOpsRealtime, 3000);
     return;
   }
 

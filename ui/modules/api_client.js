@@ -1,3 +1,21 @@
+// Detect API URL from window config or environment
+const computeApiBaseUrl = () => {
+  // First check if window.AETHELGARD_API_URL is set (injected at build/deploy time)
+  if (typeof window !== 'undefined' && window.AETHELGARD_API_URL) {
+    return window.AETHELGARD_API_URL;
+  }
+  // Try to read from window.location if not set (for local development)
+  if (typeof window !== 'undefined') {
+    return `${window.location.protocol}//${window.location.host}`;
+  }
+  return 'https://aethelgard-api.fly.dev';
+};
+
+export function getApiBaseUrl() {
+  return computeApiBaseUrl();
+}
+
+
 let apiKey = sessionStorage.getItem('aethelgard_api_key') || '';
 
 function setApiKey(nextKey) {
@@ -35,13 +53,14 @@ export async function ensureApiKey(message) {
 }
 
 export async function apiGet(path) {
-  let response = await fetch(path, { headers: buildApiHeaders({ Accept: 'application/json' }) });
+  const url = `${computeApiBaseUrl()}${path}`;
+  let response = await fetch(url, { headers: buildApiHeaders({ Accept: 'application/json' }) });
   logRequestId(response);
 
   if (response.status === 401) {
     const hasKey = await ensureApiKey('Enter X-API-Key to access pipeline telemetry:');
     if (hasKey) {
-      response = await fetch(path, { headers: buildApiHeaders({ Accept: 'application/json' }) });
+      response = await fetch(url, { headers: buildApiHeaders({ Accept: 'application/json' }) });
       logRequestId(response);
     }
   }
@@ -51,13 +70,14 @@ export async function apiGet(path) {
 }
 
 export async function apiPost(path) {
-  let response = await fetch(path, { method: 'POST', headers: buildApiHeaders() });
+  const url = `${computeApiBaseUrl()}${path}`;
+  let response = await fetch(url, { method: 'POST', headers: buildApiHeaders() });
   logRequestId(response);
 
   if (response.status === 401) {
     const hasKey = await ensureApiKey('Enter X-API-Key to trigger pipeline:');
     if (hasKey) {
-      response = await fetch(path, { method: 'POST', headers: buildApiHeaders() });
+      response = await fetch(url, { method: 'POST', headers: buildApiHeaders() });
       logRequestId(response);
     }
   }

@@ -63,30 +63,30 @@ def run_startup_preflight(settings: Settings) -> PreflightResult:
         return PreflightResult(passed=True, checks=["development_mode_skip"], failures=[])
 
     env_name = settings.app_env.value
-    logger.info("startup_preflight_begin", env=env_name)
+    is_fly = bool(os.environ.get("FLY_APP_NAME"))
+    if is_fly:
+        logger.info("startup_preflight_fly_detected", env=env_name, platform="fly.io")
 
-    # Required env vars
+    logger.info("startup_preflight_begin", env=env_name, is_fly=is_fly)
+
     missing = [name for name in _required_env_vars() if not os.environ.get(name)]
     if missing:
         failures.append(f"missing_required_env_vars:{','.join(missing)}")
     else:
         checks.append("required_env_vars")
 
-    # API key must be explicitly configured (no dev fallback)
     api_key = os.environ.get("AETHELGARD_API_KEY", "")
     if not api_key:
         failures.append("api_auth_key_not_configured")
     else:
         checks.append("api_auth_key")
 
-    # OTEL exporter must be configured in non-dev
     otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
     if not otel_endpoint:
         failures.append("otel_exporter_not_configured")
     else:
         checks.append("otel_exporter")
 
-    # LLM provider credentials required when using OpenAI in non-dev
     if settings.llm.provider.lower() == "openai":
         openai_key = os.environ.get("OPENAI_API_KEY", "")
         if not openai_key:
@@ -94,7 +94,6 @@ def run_startup_preflight(settings: Settings) -> PreflightResult:
         else:
             checks.append("openai_api_key")
 
-    # Redis auth is mandatory in production
     if settings.is_production:
         redis_password = os.environ.get("REDIS_PASSWORD", "")
         if not redis_password:
@@ -102,35 +101,36 @@ def run_startup_preflight(settings: Settings) -> PreflightResult:
         else:
             checks.append("redis_password")
 
-    # Prometheus/telemetry registry health
     telemetry_ok, telemetry_reason = telemetry_health_status()
     if not telemetry_ok:
         failures.append(f"telemetry_unhealthy:{telemetry_reason}")
     else:
         checks.append("telemetry_registry")
 
-    # Docker runtime checks
-    docker_version_ok, docker_version_msg = _run_command(["docker", "version"], timeout=30)
-    if not docker_version_ok:
-        failures.append(f"docker_version_failed:{docker_version_msg}")
+    if not is_fly:
+        docker_version_ok, docker_version_msg = _run_command(["docker", "version"], timeout=30)
+        if not docker_version_ok:
+            failures.append(f"docker_version_failed:{docker_version_msg}")
+        else:
+            checks.append("docker_version")
+
+        docker_hello_ok, docker_hello_msg = _run_command(["docker", "run", "--rm", "hello-world"], timeout=90)
+        if not docker_hello_ok:
+            failures.append(f"docker_hello_world_failed:{docker_hello_msg}")
+        else:
+            checks.append("docker_hello_world")
+
+        try:
+            import docker
+
+            client = docker.from_env()
+            client.ping()
+            checks.append("sandbox_runtime_reachable")
+        except Exception as exc:
+            failures.append(f"sandbox_runtime_unreachable:{exc}")
     else:
-        checks.append("docker_version")
-
-    docker_hello_ok, docker_hello_msg = _run_command(["docker", "run", "--rm", "hello-world"], timeout=90)
-    if not docker_hello_ok:
-        failures.append(f"docker_hello_world_failed:{docker_hello_msg}")
-    else:
-        checks.append("docker_hello_world")
-
-    # Sandbox container runtime reachability (docker SDK ping)
-    try:
-        import docker
-
-        client = docker.from_env()
-        client.ping()
-        checks.append("sandbox_runtime_reachable")
-    except Exception as exc:
-        failures.append(f"sandbox_runtime_unreachable:{exc}")
+        logger.info("startup_preflight_docker_skipped", reason="fly.io_serverless")
+        checks.append("docker_skipped_fly")
 
     passed = len(failures) == 0
     if passed:
@@ -138,9 +138,7 @@ def run_startup_preflight(settings: Settings) -> PreflightResult:
         return PreflightResult(passed=True, checks=checks, failures=[])
 
     logger.error("startup_preflight_failed", env=env_name, failures=failures, checks=checks)
-    raise PreflightFatalError(
-        "Startup preflight failed: " + " | ".join(failures)
-    )
+    raise PreflightFatalError("Startup preflight failed: " + " | ".join(failures))
 
 
 def _cli() -> int:

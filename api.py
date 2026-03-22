@@ -46,6 +46,7 @@ from core.config import get_settings
 from core.logging_config import get_logger, setup_logging
 from core.models import PlatformMetrics
 from core.preflight import run_startup_preflight
+from services.log_simulator import DEMO_SCENARIOS
 
 # ── Observability: must initialise BEFORE app creation ─────────────────────
 from core.telemetry import tracer, API_AUTH_FAILURES_TOTAL
@@ -484,32 +485,34 @@ async def lifespan(app: FastAPI):
     from listener.real_metrics import RealLogListener  # FIX #1
 
     knowledge = RAGEngine()
-    await knowledge.initialize()
-
-    playbooks_dir = Path(__file__).parent / "knowledge" / "playbooks"
-    if playbooks_dir.exists():
-        for pb in sorted(playbooks_dir.glob("*.md")):
-            await knowledge.ingest_playbook(str(pb))
-    logger.info("knowledge_loaded",
-                docs=knowledge.document_count,
-                backend=knowledge.embedding_backend)
-
     sandbox = SandboxExecutor()
-    await sandbox.initialize()
 
     orchestrator = AgentOrchestrator(
         knowledge_engine=knowledge,
         sandbox_executor=sandbox,
     )
-    async def _init_with_retry():
-        while True:
-            try:
-                await orchestrator.initialize()
-                return
-            except Exception:
-                await asyncio.sleep(1)
 
-    asyncio.create_task(_init_with_retry())
+    app.state.startup_error = None
+
+    async def _initialize_dependencies() -> None:
+        try:
+            await knowledge.initialize()
+
+            playbooks_dir = Path(__file__).parent / "knowledge" / "playbooks"
+            if playbooks_dir.exists():
+                for pb in sorted(playbooks_dir.glob("*.md")):
+                    await knowledge.ingest_playbook(str(pb))
+            logger.info("knowledge_loaded",
+                        docs=knowledge.document_count,
+                        backend=knowledge.embedding_backend)
+
+            await sandbox.initialize()
+            await orchestrator.initialize()
+        except Exception as exc:
+            app.state.startup_error = str(exc)
+            logger.exception("startup_initialization_failed", error=str(exc))
+
+    app.state.startup_task = asyncio.create_task(_initialize_dependencies())
     logger.info("ORCHESTRATOR_INSTANCE", id=id(orchestrator), stage="startup")
 
     app.state.orchestrator = orchestrator
@@ -532,6 +535,13 @@ async def lifespan(app: FastAPI):
     yield
 
     # Graceful shutdown
+    startup_task = getattr(app.state, "startup_task", None)
+    if startup_task and not startup_task.done():
+        startup_task.cancel()
+        try:
+            await startup_task
+        except asyncio.CancelledError:
+            pass
     if hasattr(app.state, "orchestrator"):
         await app.state.orchestrator.shutdown()
     if hasattr(app.state, "real_listener"):
@@ -616,7 +626,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         path=request.url.path,
         error=str(exc),
     )
-    return JSONResponse(status_code=500, content={"error": "internal_error"})
+    return JSONResponse(status_code=503, content={"error": "service_unavailable"})
 
 
 # ─────────────────────────────────────────────
@@ -636,11 +646,6 @@ def _get_state(key: str):
                 "The application startup may still be in progress. "
                 "Retry in a moment."
             ),
-        )
-    if key == "orchestrator" and hasattr(obj, "ready") and not obj.ready:
-        raise HTTPException(
-            status_code=503,
-            detail="Service not ready — orchestrator restore is still in progress.",
         )
     return obj
 
@@ -737,8 +742,74 @@ async def prometheus_metrics_legacy():
 @app.get("/ready", tags=["Health"])
 async def readiness_check():
     orchestrator = getattr(app.state, "orchestrator", None)
-    is_ready = bool(orchestrator is not None and getattr(orchestrator, "ready", False))
-    return {"ready": is_ready, "timestamp": datetime.now(timezone.utc).isoformat()}
+    startup_error = getattr(app.state, "startup_error", None)
+    if startup_error:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ready": False,
+                "reason": "startup_failed",
+                "error": startup_error,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    if orchestrator is None:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ready": False,
+                "reason": "orchestrator_missing",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    if not getattr(orchestrator, "ready", False):
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ready": False,
+                "reason": "orchestrator_not_ready",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    redis_client = getattr(orchestrator, "_redis", None)
+    if redis_client is None:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ready": False,
+                "reason": "redis_not_connected",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    try:
+        await redis_client.ping()
+    except Exception as exc:
+        logger.exception("readiness_redis_ping_failed", error=str(exc))
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ready": False,
+                "reason": "redis_ping_failed",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    worker_task = getattr(orchestrator, "_job_worker_task", None)
+    if worker_task is None or worker_task.done():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ready": False,
+                "reason": "worker_not_running",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    return {"ready": True, "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -896,58 +967,34 @@ async def run_pipeline(
     Previous flaw: This endpoint blocked the event loop for the full pipeline
     duration (~0.5–60s), making the API unresponsive to all other requests.
     """
-    simulator = _get_state("simulator")
-    orchestrator = getattr(app.state, "orchestrator", None)
-    if orchestrator is None:
-        raise HTTPException(status_code=503, detail="Service unavailable — orchestrator is not initialized.")
-
-    max_inflight_jobs = max(1, int(os.environ.get("AETHELGARD_MAX_INFLIGHT_JOBS", "300")))
-    jobs_snapshot = await orchestrator.list_jobs(limit=1000)
-    inflight_jobs = sum(
-        1 for existing_job in jobs_snapshot
-        if existing_job.status in {"pending", "running", "awaiting_approval"}
-    )
-    if inflight_jobs >= max_inflight_jobs:
-        raise HTTPException(status_code=429, detail="Too many in-flight jobs. Retry later.")
-
-    # Validate scenario exists before accepting job
     try:
-        simulator.inject_anomaly(scenario)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _get_state("simulator")
+        orchestrator = getattr(app.state, "orchestrator", None)
+        if orchestrator is None:
+            raise HTTPException(status_code=503, detail="Service unavailable — orchestrator is not initialized.")
+        if not getattr(orchestrator, "ready", False):
+            raise HTTPException(status_code=429, detail="Service not ready — orchestrator restore is still in progress.")
 
-    # Create and register background job immediately
-    job = await orchestrator.create_job(scenario=scenario)
+        if scenario not in DEMO_SCENARIOS:
+            raise HTTPException(status_code=400, detail=f"Unknown scenario: {scenario}")
 
-    async def _run_with_baseline():
-        """Run baseline collection + pipeline inside the background task."""
-        # FIX (LOGIC-05): actually feed baseline metrics to rolling window
-        for _ in range(15):
-            await orchestrator.detection_agent.collect_baseline(
-                simulator.generate_metrics()
-            )
-        # Generate anomalous metrics
-        anomaly_metrics = simulator.generate_metrics()
-        await orchestrator.run_job(job=job, metrics=anomaly_metrics)
+        job = await orchestrator.create_job(scenario=scenario)
 
-    # FIX #7 — Fire and forget: endpoint returns 202 immediately
-    try:
-        task = asyncio.create_task(_run_with_baseline())
-    except Exception:
-        # scheduling failed → do not leave job hanging
-        async with orchestrator._jobs_lock:
-            job.status = "failed"
-            job.error = "execution_not_scheduled"
-        raise HTTPException(status_code=503, detail="Failed to schedule job execution")
+        logger.info("pipeline_job_accepted", job_id=job.job_id, scenario=scenario)
 
-    logger.info("pipeline_job_accepted", job_id=job.job_id, scenario=scenario)
-
-    return PipelineJobResponse(
-        job_id=job.job_id,
-        status="pending",
-        scenario=scenario,
-        poll_url=f"/api/v1/pipeline/jobs/{job.job_id}",
-    )
+        return PipelineJobResponse(
+            job_id=job.job_id,
+            status="pending",
+            scenario=scenario,
+            poll_url=f"/api/v1/pipeline/jobs/{job.job_id}",
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.exception("pipeline_run_failed", error=str(exc), scenario=scenario)
+        return JSONResponse(status_code=503, content={"error": "service_unavailable"})
 
 
 @app.post(
@@ -980,41 +1027,81 @@ async def get_pipeline_job(
     Returns current status: pending | running | completed | failed | awaiting_approval
     When completed, includes full remediation results.
     """
-    orchestrator = _get_state("orchestrator")
-    logger.info("ORCHESTRATOR_INSTANCE", id=id(orchestrator), stage="api")
-    job = await orchestrator.get_job(job_id)
-    logger.info("API_LOOKUP", requested=job_id, exists=job is not None)
+    try:
+        orchestrator = _get_state("orchestrator")
+        logger.info("ORCHESTRATOR_INSTANCE", id=id(orchestrator), stage="api")
+        job = await orchestrator.get_job(job_id)
+        logger.info("API_LOOKUP", requested=job_id, exists=job is not None)
 
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
+        if not job:
+            redis_client = getattr(orchestrator, "_redis", None)
+            job_prefix = getattr(orchestrator, "_REDIS_JOB_PREFIX", "aethelgard:job:")
+            if redis_client:
+                try:
+                    raw_payload = await redis_client.get(f"{job_prefix}{job_id}")
+                except Exception as exc:
+                    logger.exception("pipeline_job_redis_lookup_failed", job_id=job_id, error=str(exc))
+                    return JSONResponse(status_code=503, content={"error": "service_unavailable"})
+                if raw_payload:
+                    payload = json.loads(raw_payload)
+                    started_at = payload.get("started_at")
+                    finished_at = payload.get("finished_at")
+                    duration_seconds = None
+                    if isinstance(started_at, (int, float)) and isinstance(finished_at, (int, float)):
+                        duration_seconds = round(finished_at - started_at, 3)
 
-    response = PipelineJobStatus(
-        job_id=job.job_id,
-        status=job.status,
-        scenario=job.scenario,
-        duration_seconds=job.duration_seconds,
-        error=job.error,
-        remediation_status=job.remediation_status,
-        failure_stage=job.failure_stage,
-        failure_reason=job.failure_reason,
-    )
+                    return PipelineJobStatus(
+                        job_id=str(payload.get("job_id", job_id)),
+                        status=str(payload.get("status", "pending")),
+                        scenario=str(payload.get("scenario", "unknown")),
+                        duration_seconds=duration_seconds,
+                        error=payload.get("error"),
+                        remediation_status=payload.get("remediation_status"),
+                        failure_stage=payload.get("failure_stage"),
+                        failure_reason=payload.get("failure_reason"),
+                    )
 
-    if job.record and job.status == "completed":
-        record = job.record
-        response.anomaly_detected = True
-        response.service = record.anomaly.service_name
-        response.anomaly_type = record.anomaly.anomaly_type
-        response.root_cause = record.diagnosis.root_cause
-        response.patch_type = record.patch.patch_type
-        response.remediation_status = record.remediation_status.value
-        response.failure_stage = record.failure_stage.value if record.failure_stage else None
-        response.failure_reason = record.failure_reason
-        response.risk_score = record.validation.risk_score
-        response.deployed = record.was_successful
-        response.mttd_seconds = round(record.mttd_seconds, 3)
-        response.mttr_seconds = round(record.mttr_seconds, 2)
+            raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
 
-    return response
+        response = PipelineJobStatus(
+            job_id=job.job_id,
+            status=job.status,
+            scenario=job.scenario,
+            duration_seconds=job.duration_seconds,
+            error=job.error,
+            remediation_status=job.remediation_status,
+            failure_stage=job.failure_stage,
+            failure_reason=job.failure_reason,
+        )
+
+        if job.record and job.status == "completed":
+            record = job.record
+            response.anomaly_detected = True
+            if getattr(record, "anomaly", None):
+                response.service = record.anomaly.service_name
+                response.anomaly_type = record.anomaly.anomaly_type
+            if getattr(record, "diagnosis", None):
+                response.root_cause = record.diagnosis.root_cause
+            if getattr(record, "patch", None):
+                response.patch_type = record.patch.patch_type
+            if getattr(record, "remediation_status", None):
+                response.remediation_status = record.remediation_status.value
+            response.failure_stage = record.failure_stage.value if getattr(record, "failure_stage", None) else None
+            response.failure_reason = getattr(record, "failure_reason", None)
+            if getattr(record, "validation", None):
+                response.risk_score = record.validation.risk_score
+            response.deployed = getattr(record, "was_successful", None)
+            if getattr(record, "mttd_seconds", None) is not None:
+                response.mttd_seconds = round(record.mttd_seconds, 3)
+            if getattr(record, "mttr_seconds", None) is not None:
+                response.mttr_seconds = round(record.mttr_seconds, 2)
+
+        return response
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("pipeline_job_status_failed", job_id=job_id, error=str(exc))
+        return JSONResponse(status_code=503, content={"error": "service_unavailable"})
 
 
 @app.get(
