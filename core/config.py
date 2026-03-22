@@ -153,7 +153,7 @@ class Settings(BaseSettings):
     # --- Application ---
     app_name: str = "aethelgard-v2"
     app_env: Environment = Environment.DEVELOPMENT
-    app_version: str = "2.0.0"
+    app_version: str = "2.5.0"
     app_host: str = "127.0.0.1"
     app_port: int = 8000
     log_level: str = "INFO"

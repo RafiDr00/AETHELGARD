@@ -1,4 +1,4 @@
-# 🏗️ Aethelgard v2 — Autonomous Incident Response Platform
+# Aethelgard v2.5 — Autonomous Incident Response Platform
 
 > A production-grade **Autonomous Incident Response Platform**. Core capability: **detect → diagnose → remediate → validate → learn**. Think of it as a mini Datadog / PagerDuty automation engine that automatically resolves infrastructure incidents.
 
@@ -8,7 +8,7 @@
 
 ---
 
-## 🎯 What It Does
+## What It Does
 
 Aethelgard v2 is a fully autonomous multi-agent system that:
 
@@ -32,7 +32,7 @@ This simulation approach is used for safety, to guarantee that autonomous AI sys
 
 ---
 
-## 🏛️ Architecture
+## Architecture
 
 ```text
                    ┌──────────────────────┐
@@ -76,7 +76,7 @@ Metrics
 
 ---
 
-## 🎬 Live Demo Scenario
+## Live Demo Scenario
 
 The easiest way to experience the autonomous response is through the 1-Command Demo.
 
@@ -106,7 +106,7 @@ Watch the system automatically detect, diagnose, remediate, validate, and simula
 
 ---
 
-## ✅ Verified End-to-End Pipeline
+## Verified End-to-End Pipeline
 
 An execution of a full pipeline run yields the following sequence (detection → diagnosis → remediation → validation → deployment).
 
@@ -123,7 +123,7 @@ An execution of a full pipeline run yields the following sequence (detection →
 
 ---
 
-## 🚀 Quick Start Instructions
+## Quick Start Instructions
 
 1. **Install Dependencies**
    ```bash
@@ -147,7 +147,7 @@ An execution of a full pipeline run yields the following sequence (detection →
 
 ---
 
-## 🛠️ Technology Stack
+## Technology Stack
 
 | Layer | Technology |
 |-------|-----------|

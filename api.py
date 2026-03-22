@@ -1,16 +1,8 @@
 """
-Aethelgard v2 — FastAPI REST API (Production-Grade)
+Aethelgard v2.5 — FastAPI REST API (Production-Grade)
 
-FIXES APPLIED:
-  #1  — Real metrics middleware (AethelgardMetricsMiddleware) captures
-        actual request latency/errors. RealLogListener replaces LogSimulator.
-  #2  — OTel instrumentation embedded directly in AgentOrchestrator.
-        ObservableOrchestrator wrapper removed (it bypassed spans in BG jobs).
-  #3  — asyncio.Lock on shared state; per-service remediation mutex.
-  #4  — Anomaly fingerprint deduplication in orchestrator.
-  #5  — /pipeline/run 202 Accepted + job_id (non-blocking).
-  #6  — CORS restricted to explicit origins (not wildcard + credentials).
-  Auth — API key required on write/action endpoints.
+The core API layer for the Aethelgard Autonomous Incident Response platform.
+Manages versioned routing, observability telemetry, and event orchestration.
 """
 
 from __future__ import annotations

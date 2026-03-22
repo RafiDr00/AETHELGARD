@@ -48,7 +48,7 @@ def print_header():
     """Print the demo header."""
     console.print()
     console.print(Panel.fit(
-        "[bold cyan]🏗️ AETHELGARD V2[/bold cyan]\n"
+        "[bold cyan]AETHELGARD V2.5[/bold cyan]\n"
         "[dim]Autonomous DevOps Platform — Live Demo[/dim]\n\n"
         "[yellow]Scenario:[/yellow] Payment API Latency Spike\n"
         "[yellow]Target:[/yellow] Complete autonomous remediation < 60 seconds",
@@ -59,11 +59,7 @@ def print_header():
     console.print()
 
 
-def print_stage(stage_num: int, title: str, description: str):
-    """Print a pipeline stage header."""
-    emoji_map = {1: "🔍", 2: "🧠", 3: "🔧", 4: "🛡️", 5: "🚀", 6: "📊"}
-    emoji = emoji_map.get(stage_num, "▶")
-    console.print(f"\n{emoji} [bold cyan]Stage {stage_num}:[/bold cyan] [bold]{title}[/bold]")
+    console.print(f"\n[bold cyan]Stage {stage_num}:[/bold cyan] [bold]{title}[/bold]")
     console.print(f"   [dim]{description}[/dim]")
 
 
@@ -136,8 +132,8 @@ async def run_demo():
     # ═══════════════════════════════════════════
     # ANOMALY INJECTION
     # ═══════════════════════════════════════════
-    console.print("\n[bold red]⚡ INJECTING ANOMALY[/bold red]")
-    console.print("   [red]Payment API latency spike: 180ms → 2250ms[/red]")
+    console.print("\n[bold red][FAIL] INJECTING ANOMALY[/bold red]")
+    console.print("   [red]Payment API latency spike: 180ms -> 2250ms[/red]")
     console.print("   [red]Simulated worker pool exhaustion[/red]")
 
     scenario = simulator.inject_anomaly("payment_latency_spike")
@@ -150,14 +146,14 @@ async def run_demo():
     console.print("\n   [yellow]Anomalous metrics:[/yellow]")
     for m in anomalous_metrics:
         if m.service_name == "payment-api":
-            indicator = "🔴" if m.metric_name == "response_time_ms" else "🟡"
+            indicator = "[ERR]" if m.metric_name == "response_time_ms" else "[WARN]"
             console.print(f"   {indicator} {m.service_name}/{m.metric_name}: {m.value} {m.unit}")
 
     # ═══════════════════════════════════════════
     # RUN FULL PIPELINE
     # ═══════════════════════════════════════════
     console.print("\n" + "═" * 60)
-    console.print("[bold cyan]🤖 AUTONOMOUS REMEDIATION PIPELINE[/bold cyan]")
+    console.print("[bold cyan]AUTONOMOUS REMEDIATION PIPELINE[/bold cyan]")
     console.print("═" * 60)
 
     # Run the full pipeline through the orchestrator
@@ -196,21 +192,21 @@ async def run_demo():
 
         # Stage 4: Validation
         print_stage(4, "VALIDATION", "Multi-stage safety pipeline")
-        console.print(f"   [green]✓[/green] Static analysis: {'PASSED ✅' if record.validation.static_analysis_passed else 'FAILED ❌'}")
-        console.print(f"   [green]✓[/green] Policy check: {'PASSED ✅' if record.validation.policy_check_passed else 'FAILED ❌'}")
-        console.print(f"   [green]✓[/green] Tests: {'PASSED ✅' if record.validation.tests_passed else 'FAILED ❌'}")
-        console.print(f"   [green]✓[/green] Sandbox: {'PASSED ✅' if record.validation.sandbox_execution_passed else 'FAILED ❌'}")
-        console.print(f"   [green]✓[/green] Risk score: [bold]{record.validation.risk_score:.2f}[/bold] ({record.validation.risk_level.value})")
-        console.print(f"   [green]✓[/green] Auto-deploy: {'YES ✅' if record.validation.is_safe_for_auto_deploy else 'NO ⚠️'}")
+        console.print(f"   [green]ok[/green] Static analysis: {'PASSED' if record.validation.static_analysis_passed else 'FAILED'}")
+        console.print(f"   [green]ok[/green] Policy check: {'PASSED' if record.validation.policy_check_passed else 'FAILED'}")
+        console.print(f"   [green]ok[/green] Tests: {'PASSED' if record.validation.tests_passed else 'FAILED'}")
+        console.print(f"   [green]ok[/green] Sandbox: {'PASSED' if record.validation.sandbox_execution_passed else 'FAILED'}")
+        console.print(f"   [green]ok[/green] Risk score: [bold]{record.validation.risk_score:.2f}[/bold] ({record.validation.risk_level.value})")
+        console.print(f"   [green]ok[/green] Auto-deploy: {'YES' if record.validation.is_safe_for_auto_deploy else 'NO'}")
 
         # Stage 5: Deployment
         print_stage(5, "DEPLOYMENT", "Autonomous rollout to cluster")
-        console.print(f"   [green]✓[/green] Status: [bold green]{record.deployment.status}[/bold green]")
-        console.print(f"   [green]✓[/green] Strategy: {record.deployment.deployment_strategy}")
-        console.print(f"   [green]✓[/green] Health check: {'PASSED ✅' if record.deployment.health_check_passed else 'FAILED ❌'}")
-        console.print(f"   [green]✓[/green] Rollback: {'Triggered ⚠️' if record.deployment.rollback_triggered else 'Not needed ✅'}")
+        console.print(f"   [green]ok[/green] Status: [bold green]{record.deployment.status}[/bold green]")
+        console.print(f"   [green]ok[/green] Strategy: {record.deployment.deployment_strategy}")
+        console.print(f"   [green]ok[/green] Health check: {'PASSED' if record.deployment.health_check_passed else 'FAILED'}")
+        console.print(f"   [green]ok[/green] Rollback: {'Triggered' if record.deployment.rollback_triggered else 'Not needed'}")
         if record.deployment.image_tag:
-            console.print(f"   [green]✓[/green] Image: {record.deployment.image_tag}")
+            console.print(f"   [green]ok[/green] Image: {record.deployment.image_tag}")
 
         # Stage 6: Metrics
         print_stage(6, "METRICS", "Platform performance tracking")
@@ -234,8 +230,8 @@ async def run_demo():
         results_table.add_row("Total Duration", f"{pipeline_duration:.2f} seconds")
         results_table.add_row("MTTD (Mean Time to Detect)", f"{record.mttd_seconds * 1000:.0f}ms")
         results_table.add_row("MTTR (Mean Time to Repair)", f"{record.mttr_seconds:.2f} seconds")
-        results_table.add_row("Autonomous", "Yes ✅" if record.was_successful else "No ❌")
-        results_table.add_row("Human Intervention", "Not Required ✅" if not record.manual_intervention_required else "Required ⚠️")
+        results_table.add_row("Autonomous", "Yes" if record.was_successful else "No")
+        results_table.add_row("Human Intervention", "Not Required" if not record.manual_intervention_required else "Required")
         results_table.add_row("", "")
         results_table.add_row("Anomalies Detected", str(metrics.total_anomalies_detected))
         results_table.add_row("Fixes Deployed", str(metrics.total_fixes_deployed))
@@ -251,7 +247,7 @@ async def run_demo():
         # Target check
         target_met = pipeline_duration < 60
         console.print(Panel(
-            f"{'[bold green]✅ TARGET MET[/bold green]' if target_met else '[bold red]❌ TARGET MISSED[/bold red]'}\n"
+            f"{'[bold green][SUCCESS] TARGET MET[/bold green]' if target_met else '[bold red][FAIL] TARGET MISSED[/bold red]'}\n"
             f"Autonomous remediation completed in [bold]{pipeline_duration:.2f}[/bold] seconds "
             f"(target: < 60 seconds)",
             border_style="green" if target_met else "red",
@@ -278,7 +274,7 @@ async def run_multi_scenario_demo():
 
     setup_logging(log_level="WARNING")
     console.print(Panel.fit(
-        "[bold cyan]🏗️ AETHELGARD V2 — Multi-Scenario Demo[/bold cyan]\n"
+        "[bold cyan]AETHELGARD V2.5 — Multi-Scenario Demo[/bold cyan]\n"
         "[dim]Running all anomaly scenarios to demonstrate learning[/dim]",
         border_style="cyan",
     ))
