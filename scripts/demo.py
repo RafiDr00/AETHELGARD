@@ -77,9 +77,7 @@ async def run_demo():
     print_header()
     pipeline_start = time.time()
 
-    # ═══════════════════════════════════════════
-    # INITIALIZATION
-    # ═══════════════════════════════════════════
+    # Initialization
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -115,9 +113,7 @@ async def run_demo():
     console.print(f"   [green]✓[/green] 5 agents ready (Detection, Diagnosis, Remediation, Validation, Deployment)")
     console.print(f"   [green]✓[/green] Sandbox executor ready")
 
-    # ═══════════════════════════════════════════
-    # BASELINE COLLECTION
-    # ═══════════════════════════════════════════
+    # Baseline Collection
     console.print("\n[bold yellow]📈 Collecting baseline metrics...[/bold yellow]")
 
     # Build up normal metric history
@@ -129,9 +125,7 @@ async def run_demo():
     console.print("   [green]✓[/green] 15 baseline metric samples collected")
     console.print("   [dim]   All services healthy: payment-api, user-service, order-service, inventory-service[/dim]")
 
-    # ═══════════════════════════════════════════
-    # ANOMALY INJECTION
-    # ═══════════════════════════════════════════
+    # Anomaly Injection
     console.print("\n[bold red][FAIL] INJECTING ANOMALY[/bold red]")
     console.print("   [red]Payment API latency spike: 180ms -> 2250ms[/red]")
     console.print("   [red]Simulated worker pool exhaustion[/red]")
@@ -149,12 +143,7 @@ async def run_demo():
             indicator = "[ERR]" if m.metric_name == "response_time_ms" else "[WARN]"
             console.print(f"   {indicator} {m.service_name}/{m.metric_name}: {m.value} {m.unit}")
 
-    # ═══════════════════════════════════════════
-    # RUN FULL PIPELINE
-    # ═══════════════════════════════════════════
-    console.print("\n" + "═" * 60)
-    console.print("[bold cyan]AUTONOMOUS REMEDIATION PIPELINE[/bold cyan]")
-    console.print("═" * 60)
+    console.print("\n[bold cyan]REMEDIATION PIPELINE ACTIVATED[/bold cyan]")
 
     # Run the full pipeline through the orchestrator
     record = await orchestrator.run_full_pipeline(anomalous_metrics)
@@ -162,9 +151,7 @@ async def run_demo():
     if record:
         pipeline_duration = time.time() - pipeline_start
 
-        # ═══════════════════════════════════════════
-        # STAGE RESULTS
-        # ═══════════════════════════════════════════
+        # Execution Results
 
         # Stage 1: Detection
         print_stage(1, "DETECTION", "Anomaly identification via statistical analysis")
@@ -212,10 +199,8 @@ async def run_demo():
         print_stage(6, "METRICS", "Platform performance tracking")
         metrics = orchestrator.get_metrics()
 
-        # ═══════════════════════════════════════════
-        # RESULTS TABLE
-        # ═══════════════════════════════════════════
-        console.print("\n" + "═" * 60)
+        # Summary Report
+        console.print()
 
         results_table = Table(
             title="🏆 Remediation Results",

@@ -39,7 +39,7 @@ from core.models import PlatformMetrics
 from core.preflight import run_startup_preflight
 from services.log_simulator import DEMO_SCENARIOS
 
-# ── Observability: must initialise BEFORE app creation ─────────────────────
+# Observability
 from core.telemetry import tracer, API_AUTH_FAILURES_TOTAL
 try:
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -59,9 +59,7 @@ OPS_CONSOLE_CSS_PATH = Path(__file__).parent / "ui" / "ops_console.css"
 OPS_CONSOLE_JS_PATH = Path(__file__).parent / "ui" / "ops_console.js"
 UI_ASSETS_DIR = Path(__file__).parent / "ui"
 
-# ─────────────────────────────────────────────
-# FIX #5 — API Key Authentication
-# ─────────────────────────────────────────────
+# API Key Authentication
 
 # API keys are loaded from environment / settings.
 # In production: use a vault-backed secret store.
