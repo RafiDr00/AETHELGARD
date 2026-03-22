@@ -1,5 +1,5 @@
 FROM nginx:alpine
-LABEL version="2.4.2-antigravity"
+LABEL version="1.0.0-stable"
 
 # Copy the static HTML, CSS, and JavaScript files
 COPY ops_console.html /usr/share/nginx/html/
