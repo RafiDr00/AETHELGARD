@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/downloads/release/python-3120/)
 [![Docker](https://img.shields.io/badge/docker-ready-blue)](https://hub.docker.com/)
 
-> **Live Demo:** 🔗 `[Deploy to Render — see instructions below]`
+> **Live Demo:** 🔗 [Dashboard](https://rafidr00.github.io/AETHELGARD) · [API](https://aethelgard-api.onrender.com)
 
 ## Overview
 Aethelgard is a distributed, asynchronous agent orchestration system designed for automated incident response and remediation. It provides a robust framework for managing the lifecycle of complex failure-recovery pipelines in production-like environments.
