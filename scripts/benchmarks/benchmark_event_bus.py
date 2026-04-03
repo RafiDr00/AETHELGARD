@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 # Supress excessive logging for benchmarks
 logging.getLogger("aethelgard").setLevel(logging.CRITICAL)
 
-from event_bus.redis_streams import RedisEventBus
+from infrastructure.redis_streams import RedisEventBus
 from core.models import EventType, Event
 from core.config import get_settings
 

@@ -46,7 +46,7 @@ from core.config import get_settings
 from core.logging_config import get_logger, setup_logging
 from core.models import PlatformMetrics
 from core.preflight import run_startup_preflight
-from services.log_simulator import DEMO_SCENARIOS
+from experiments.scenario_runner import DEMO_SCENARIOS
 
 # ── Observability: must initialise BEFORE app creation ─────────────────────
 from core.telemetry import tracer, API_AUTH_FAILURES_TOTAL
@@ -481,7 +481,7 @@ async def lifespan(app: FastAPI):
     # FIX #2: Use AgentOrchestrator directly — OTel is embedded inside it.
     # The previous wrapper approach was removed because background jobs bypassed tracing.
     from agents.orchestrator import AgentOrchestrator
-    from services.log_simulator import LogSimulator
+    from experiments.scenario_runner import LogSimulator
     from listener.real_metrics import RealLogListener  # FIX #1
 
     knowledge = RAGEngine()
@@ -1051,7 +1051,6 @@ async def get_pipeline_job(
                         duration_seconds = round(finished_at - started_at, 3)
 
                     return PipelineJobStatus(
-                       commit
                         job_id=str(payload.get("job_id", job_id)),
                         status=str(payload.get("status", "pending")),
                         scenario=str(payload.get("scenario", "unknown")),

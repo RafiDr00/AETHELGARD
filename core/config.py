@@ -155,7 +155,7 @@ class Settings(BaseSettings):
     app_env: Environment = Environment.DEVELOPMENT
     app_version: str = "1.0.0"
     app_host: str = "127.0.0.1"
-    app_port: int = Field(default=8000, validation_alias="PORT")
+    app_port: int = Field(default=8000, env="PORT")
     log_level: str = "INFO"
 
     # --- Subsystem Configs ---

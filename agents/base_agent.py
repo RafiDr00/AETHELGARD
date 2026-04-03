@@ -23,7 +23,7 @@ from core.exceptions import AgentReasoningError, AgentTimeoutError
 from core.logging_config import get_logger
 from core.models import AgentType, Event, EventType, ReActStep
 from core.telemetry import record_react_iteration    # FIX #8
-from event_bus.redis_streams import RedisStreamsClient, get_event_bus
+from infrastructure.redis_streams import RedisStreamsClient, get_event_bus
 
 logger = get_logger(__name__)
 
