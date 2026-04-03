@@ -2,7 +2,7 @@
 set -e
 
 # Default API URL
-API_URL="${API_URL:-https://aethelgard-api.fly.dev}"
+API_URL="${API_URL:-https://aethelgard-api.onrender.com}"
 
 # Inject API URL into ops_console.html by adding a script before the main app script
 # This sets window.AETHELGARD_API_URL for the JavaScript modules to use

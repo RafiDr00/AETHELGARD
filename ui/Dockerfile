@@ -15,7 +15,7 @@ COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # Set environment variable for API URL (can be overridden at runtime)
-ENV API_URL=https://aethelgard-api.fly.dev
+ENV API_URL=https://aethelgard-api.onrender.com
 
 EXPOSE 80
 

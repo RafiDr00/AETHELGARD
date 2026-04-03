@@ -63,11 +63,7 @@ def run_startup_preflight(settings: Settings) -> PreflightResult:
         return PreflightResult(passed=True, checks=["development_mode_skip"], failures=[])
 
     env_name = settings.app_env.value
-    is_fly = bool(os.environ.get("FLY_APP_NAME"))
-    if is_fly:
-        logger.info("startup_preflight_fly_detected", env=env_name, platform="fly.io")
-
-    logger.info("startup_preflight_begin", env=env_name, is_fly=is_fly)
+    logger.info("startup_preflight_begin", env=env_name)
 
     missing = [name for name in _required_env_vars() if not os.environ.get(name)]
     if missing:
@@ -107,30 +103,27 @@ def run_startup_preflight(settings: Settings) -> PreflightResult:
     else:
         checks.append("telemetry_registry")
 
-    if not is_fly:
-        docker_version_ok, docker_version_msg = _run_command(["docker", "version"], timeout=30)
-        if not docker_version_ok:
-            failures.append(f"docker_version_failed:{docker_version_msg}")
-        else:
-            checks.append("docker_version")
-
-        docker_hello_ok, docker_hello_msg = _run_command(["docker", "run", "--rm", "hello-world"], timeout=90)
-        if not docker_hello_ok:
-            failures.append(f"docker_hello_world_failed:{docker_hello_msg}")
-        else:
-            checks.append("docker_hello_world")
-
-        try:
-            import docker
-
-            client = docker.from_env()
-            client.ping()
-            checks.append("sandbox_runtime_reachable")
-        except Exception as exc:
-            failures.append(f"sandbox_runtime_unreachable:{exc}")
+    # Docker validation (always run in production/staging unless explicitly disabled)
+    docker_version_ok, docker_version_msg = _run_command(["docker", "version"], timeout=30)
+    if not docker_version_ok:
+        failures.append(f"docker_version_failed:{docker_version_msg}")
     else:
-        logger.info("startup_preflight_docker_skipped", reason="fly.io_serverless")
-        checks.append("docker_skipped_fly")
+        checks.append("docker_version")
+
+    docker_hello_ok, docker_hello_msg = _run_command(["docker", "run", "--rm", "hello-world"], timeout=90)
+    if not docker_hello_ok:
+        failures.append(f"docker_hello_world_failed:{docker_hello_msg}")
+    else:
+        checks.append("docker_hello_world")
+
+    try:
+        import docker
+
+        client = docker.from_env()
+        client.ping()
+        checks.append("sandbox_runtime_reachable")
+    except Exception as exc:
+        failures.append(f"sandbox_runtime_unreachable:{exc}")
 
     passed = len(failures) == 0
     if passed:
