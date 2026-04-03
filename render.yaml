@@ -19,4 +19,6 @@ services:
   - type: redis
     name: aethelgard-redis
     plan: free
+    region: frankfurt
     maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
