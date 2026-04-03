@@ -1,20 +1,3 @@
-# ============================================
-# Aethelgard v2 — Autonomous DevOps Platform
-# Production Dependencies (audited 2026-03-10)
-#
-# Removed packages that were listed but never
-# imported anywhere in the codebase:
-#   langchain, langchain-community, langchain-core,
-#   langgraph, openai   — no Python file imports any
-#   aioredis            — redis>=4 ships redis.asyncio
-#   asyncio-mqtt        — not imported
-#   confluent-kafka     — not imported
-#   boto3, botocore     — not imported
-#   kubernetes          — not imported
-#   astroid, pylint     — CI tool, not runtime
-#   altair              — not imported
-# ============================================
-
 # --- Core Framework ---
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
@@ -33,20 +16,10 @@ numpy==1.26.2
 scikit-learn>=1.4.0
 
 # --- Event Bus ---
-# redis[asyncio] ships redis.asyncio; no separate aioredis needed
 redis[asyncio]==5.0.1
 
 # --- Containerization ---
 docker==7.0.0
-
-# --- Security / Code Analysis ---
-bandit==1.7.6
-
-# --- Testing ---
-pytest==7.4.3
-pytest-asyncio==0.23.2
-pytest-cov==4.1.0
-pytest-mock==3.12.0
 
 # --- Observability ---
 prometheus-client==0.19.0
