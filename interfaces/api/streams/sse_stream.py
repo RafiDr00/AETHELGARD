@@ -1,3 +1,4 @@
+
 import asyncio
 import json
 import time
@@ -33,61 +34,46 @@ def _sse_log_payload(log_entry: Any) -> Dict[str, Any]:
         "span_id": getattr(log_entry, "span_id", "")
     }
 
-@router.get("/log-stream")
-async def log_stream(
-    request: Request,
-    burst: int = Query(1, ge=0, le=200),
-    interval_ms: int = Query(1000, ge=10, le=5000),
-):
-    simulator = getattr(request.app.state, "simulator", None)
-    
-    async def event_generator():
-        log_queue = asyncio.Queue(maxsize=1000)
-        last_heartbeat = time.time()
 
+# --- Real pipeline event SSE stream ---
+@router.get("/events")
+async def pipeline_event_stream(request: Request, job_id: str = None):
+    async def real_event_generator(request: Request, job_id: str = None):
+        import redis.asyncio as aioredis
+        from core.config import get_settings
+        settings = get_settings()
+
+        r = aioredis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            db=settings.redis_db,
+            decode_responses=True,
+        )
+        last_id = "$"
         try:
             while not await request.is_disconnected():
-                now = time.time()
-                
-                if burst > 0 and simulator:
-                    for log_entry in simulator.generate_logs(count=burst):
-                        payload = _sse_log_payload(log_entry)
-                        
-                        if not payload.get("span_id"):
-                            payload["span_id"] = f"span-{payload.get('stage', 'detection')}"
-
-                        if log_queue.full():
-                            try:
-                                log_queue.get_nowait()
-                            except asyncio.QueueEmpty:
-                                pass
-                        log_queue.put_nowait(payload)
-
-                sent_any = False
-                while not log_queue.empty():
-                    event = log_queue.get_nowait()
-                    event_id = str(event.get("id", "")) or f"evt-{int(time.time() * 1000)}"
-                    
-                    yield f"id: {event_id}\n"
-                    yield "retry: 3000\n"
-                    # Default handling for datetime if present
-                    yield f"data: {json.dumps(event, default=str)}\n\n"
-                    sent_any = True
-
-                if sent_any:
-                    last_heartbeat = now
-                elif now - last_heartbeat > 12.0:
-                    yield ": heartbeat\n\n"
-                    last_heartbeat = now
-
-                await asyncio.sleep(interval_ms / 1000.0)
-        except asyncio.CancelledError:
-            pass
+                results = await r.xread(
+                    {"pipeline:events": last_id},
+                    count=10,
+                    block=1000,
+                )
+                if results:
+                    for stream_name, messages in results:
+                        for msg_id, data in messages:
+                            last_id = msg_id
+                            if job_id and data.get("job_id") != job_id:
+                                continue
+                            payload = {
+                                "stage": data.get("stage"),
+                                "status": data.get("status"),
+                                "job_id": data.get("job_id"),
+                            }
+                            yield f"data: {json.dumps(payload)}\n\n"
         finally:
-            logger.info("sse_log_stream_closed", client=str(getattr(request, "client", "unknown")))
+            await r.aclose()
 
     return StreamingResponse(
-        event_generator(),
+        real_event_generator(request, job_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

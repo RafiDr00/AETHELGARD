@@ -42,7 +42,7 @@ async def start_platform() -> None:
     # Uvicorn triggers lifespan.startup on the first worker before serving
     # any request, guaranteeing all app.state.* objects are set.
     config = uvicorn.Config(
-        app="interfaces.api.app:app",
+        app="api:app",
         host=settings.app_host,
         port=settings.app_port,
         log_level=settings.log_level.lower(),
