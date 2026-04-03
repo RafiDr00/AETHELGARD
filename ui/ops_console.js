@@ -356,17 +356,18 @@ document.querySelectorAll('.cb').forEach(btn => {
     document.getElementById('state-indicator').className = 'h-run-state active';
 
     try {
-      const res = await fetch(`/api/v1/pipeline/run?scenario=${scenario}`, {
-        method: 'POST',
-        headers: { 'X-API-Key': 'test123' },
-      });
-      const job = await res.json();
+      const job = await apiPost(`/api/v1/pipeline/run?scenario=${scenario}`);
       if (!job.job_id) throw new Error('No job_id returned');
 
       connectSSE(job.job_id);
     } catch (err) {
       console.error('Pipeline trigger failed', err);
-      addStreamEvent({ type: 'error', message: err.message });
+      addEventRow({ 
+        ts: nowTs(), 
+        tag: 'ERR', 
+        msg: `Pipeline trigger failed: ${err.message}`, 
+        cls: 'anomaly' 
+      });
     } finally {
       btn.classList.remove('active');
     }
