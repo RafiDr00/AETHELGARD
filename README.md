@@ -1,73 +1,87 @@
 # AETHELGARD
 
 [![CI](https://github.com/RafiDr00/AETHELGARD/actions/workflows/ci.yml/badge.svg)](https://github.com/RafiDr00/AETHELGARD/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/downloads/release/python-3120/)
+[![Tests](https://img.shields.io/badge/tests-110%20passing-brightgreen)](https://github.com/RafiDr00/AETHELGARD/actions)
+[![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-blue)](https://hub.docker.com/)
 
-> **Autonomous Incident Response & Remediation Engine**
-> 
 > **Live Demo:** 🔗 [Dashboard](https://rafidr00.github.io/AETHELGARD) · [API](https://aethelgard-api.onrender.com)
 
 ## Overview
 
-Aethelgard is a distributed, asynchronous agent orchestration system designed for automated incident response. It bridges the gap between observability signals and remedial action by coordinating specialized AI agents to restore system health without human intervention.
-
-Unlike traditional alerting systems that only notify on failure, Aethelgard executes a full autonomous lifecycle: **Detection → Diagnosis → Remediation → Validation → Deployment**.
-
-## Core Tech Stack
-
-*   **Runtime:** Python 3.12 (Pydantic V2, Asyncio)
-*   **API & Streaming:** FastAPI with Server-Sent Events (SSE) for real-time dashboard updates.
-*   **Event Bus:** Redis Streams for durable, asynchronous task distribution and consumer groups.
-*   **AI/RAG Engine:** FAISS vector store with `sentence-transformers/all-MiniLM-L6-v2` for playbook retrieval.
-*   **Observability:** OpenTelemetry (OTLP) instrumentation for tracing and Prometheus for metrics.
-*   **Deployment:** Docker-containerized backend on Render; Frontend hosted on GitHub Pages.
+Aethelgard is a distributed, asynchronous multi-agent AIOps platform for autonomous incident response. It bridges the gap between observability signals and meaningful remedial action — rather than simple alerting, it orchestrates specialized agents to restore system health autonomously.
 
 ## Key Capabilities
 
-*   **State-Machine Orchestration:** Robust tracking of remediation jobs from `PENDING` to `RESOLVED` with automatic failure handling.
-*   **Deduplication & Safety:** Intelligent fingerprinting to prevent thundering-herd effects and per-service locks to avoid conflicting remediations.
-*   **Hardened Sandbox:** Isolated Docker environment for executing remediation scripts with zero network access and restricted capabilities.
-*   **Live Ops Console:** A precision-engineered dashboard visualizing agent reasoning, real-time telemetry, and historical results.
-*   **Chaos Engineering:** Native support for simulating failure scenarios (latency spikes, memory leaks, DB drops) to test orchestration resilience.
+- **Job Orchestration:** State-machine based tracking of the multi-stage remediation lifecycle (Pending → Running → Success/Fail)
+- **Async Agent Pipeline:** Non-blocking execution of domain agents using a scalable worker-pool model with ReAct reasoning loops
+- **Redis-Backed Durability:** Reliable message passing and job state persistence via Redis Streams with consumer groups
+- **RAG Engine:** Semantic similarity search using sentence-transformers (all-MiniLM-L6-v2) + FAISS IndexFlatIP
+- **Sandbox Security:** AST-level code analysis before any patch execution — catches obfuscated eval() calls that regex cannot
+- **Live Dashboard:** Real-time telemetry visualization using SSE with a precision-engineered ops console
+- **Chaos Resilience Testing:** Native support for chaos injection (latency spikes, memory leaks, DB failures) to validate orchestration logic
 
 ## Architecture
-
-```mermaid
-graph TD
-    A[Telemetry Stream] --> B[Log Listener / Metrics Listener]
-    B --> C[Detection Agent]
-    C -- Anomaly Detected --> D[Agent Orchestrator]
-    D -- Subscribes --> E[Redis Streams]
-    E --> F[Diagnosis Agent + RAG]
-    F --> G[Remediation Agent]
-    G --> H[Validation Agent]
-    H --> I[Deployment Agent]
-    I --> J[Sandbox Executor]
-    J -- Result --> D
-    D -- SSE / WebSocket --> K[Ops Console Dashboard]
+```
+flowchart LR
+    User([User]) --> API[FastAPI Gateway]
+    API --> ORCH[Workflow Engine]
+    ORCH --> COORD[Agent Coordinator]
+    COORD --> DET[Detection Agent]
+    COORD --> DGN[Diagnosis Agent]
+    COORD --> RMD[Remediation Agent]
+    COORD --> VAL[Validation Agent]
+    COORD --> DEP[Deployment Agent]
+    DET & DGN & RMD & VAL & DEP --> BUS[(Redis Event Bus)]
+    DGN --> RAG[RAG Engine / FAISS]
+    RMD --> SAND[Sandbox Executor]
 ```
 
-## Deployment & Development
+## Agent Pipeline
 
-### Local Setup
-1.  Clone the repository and install dependencies:
-    ```bash
-    pip install -r requirements.txt
-    ```
-2.  Start Redis and set environment variables:
-    ```bash
-    export AETHELGARD_API_KEY="test123"
-    export REDIS_URL="redis://localhost:6379"
-    ```
-3.  Run the platform:
-    ```bash
-    python main.py
-    ```
+Each agent implements the **ReAct reasoning loop** (Thought → Action → Observation → Decide):
 
-### Cloud Deployment
-*   **Backend:** Deployed via `Dockerfile` to Render. Ensure `AETHELGARD_API_KEY` and `REDIS_URL` are set in environment variables.
-*   **Frontend:** Standard SPA deployment to GitHub Pages. All API calls target the Render endpoint with CORS authorization.
+1. **Detection Agent** — Analyzes metrics stream, identifies anomalies via statistical thresholds
+2. **Diagnosis Agent** — RAG-augmented root cause analysis using FAISS semantic search over a remediation knowledge base
+3. **Remediation Agent** — Generates infrastructure patches based on diagnosis results
+4. **Validation Agent** — AST-level security analysis + policy checks before any code executes
+5. **Deployment Agent** — Applies validated patches inside a hardened sandbox executor
 
-## License
-MIT
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| **Backend** | Python 3.12, FastAPI, asyncio |
+| **Agent Reasoning** | ReAct loop, RAG, sentence-transformers, FAISS |
+| **Event Bus** | Redis Streams (consumer groups, back-pressure) |
+| **Observability** | OpenTelemetry, Prometheus metrics, structured logging |
+| **Security** | AST-level code analysis, sandboxed execution |
+| **Deployment** | Docker, Render, GitHub Pages |
+| **Testing** | pytest, 110 passing tests |
+
+## Quickstart
+```bash
+git clone https://github.com/RafiDr00/AETHELGARD.git
+cd AETHELGARD
+docker-compose up --build -d
+# Open http://localhost:8080
+```
+
+## Deployment
+
+**Backend (Render):** Connect repo → Render detects `render.yaml` → deploys automatically  
+**Frontend (GitHub Pages):** Served from `ui/` folder on `main` branch  
+**Redis:** Upstash free tier
+
+## Limitations
+
+- Synthetic telemetry: metrics are generated by a simulator rather than a live production environment
+- Single-node deployment: current orchestration engine is designed for single-instance operation
+- Reference implementation: designed for architectural demonstration rather than turnkey production use
+
+## Future Work
+
+- Real telemetry ingestion via Prometheus/Datadog hooks
+- Policy learning using reinforcement learning to optimize remediation strategies
+- Distributed scaling with horizontally scalable orchestrator nodes
+- Persistent vector store: migrate in-memory FAISS to Qdrant/Weaviate for cross-restart knowledge retention
