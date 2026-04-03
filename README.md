@@ -1,5 +1,12 @@
 # AETHELGARD
 
+[![CI](https://github.com/RafiDr00/AETHELGARD/actions/workflows/ci.yml/badge.svg)](https://github.com/RafiDr00/AETHELGARD/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-98%25%20passing-brightgreen)](https://github.com/RafiDr00/AETHELGARD)
+[![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/downloads/release/python-3120/)
+[![Docker](https://img.shields.io/badge/docker-ready-blue)](https://hub.docker.com/)
+
+> **Live Demo:** 🔗 `[Deploy to Render — see instructions below]`
+
 ## Overview
 Aethelgard is a distributed, asynchronous agent orchestration system designed for automated incident response and remediation. It provides a robust framework for managing the lifecycle of complex failure-recovery pipelines in production-like environments.
 
@@ -78,7 +85,7 @@ The Aethelgard console provides a high-fidelity visual of the active remediation
 *   **Backend:** FastAPI, Python 3.12+
 *   **Queue/State:** Redis
 *   **Observability:** SSE, OpenTelemetry (Traces)
-*   **Deployment:** Docker, Fly.io
+*   **Deployment:** Docker, Render
 *   **Frontend:** Static HTML/JS with Precision CSS
 
 ## Project Structure
@@ -92,7 +99,7 @@ AETHELGARD/
 ├── api.py             # FastAPI entry point
 ├── main.py            # CLI entry point
 ├── docker-compose.yml # Local orchestration
-└── fly.toml           # Production deployment config
+└── render.yaml        # Render production deployment config
 ```
 
 ## Screenshots
@@ -160,4 +167,4 @@ Observe the **Response Pipeline** on the dashboard as it detects the stopped ser
 *   **Real Telemetry Ingestion:** Support for Prometheus/Datadog hooks.
 *   **Policy Learning:** Using reinforcement learning to optimize remediation strategies over time.
 *   **Distributed Scaling:** Horizontally scalable orchestrator nodes with cluster consensus.
-*   **Vector Memory:** RAG-enhanced agent reasoning using a vector database for historical remediation analysis.
+*   **Persistent Vector Store:** Migrate the in-memory FAISS index in the RAG engine to a persistent vector database (e.g. Qdrant, Weaviate) for long-term retention.

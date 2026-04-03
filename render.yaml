@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: aethelgard-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: aethelgard-redis
+          property: connectionString
+      - key: AETHELGARD_SECRET_KEY
+        generateValue: true
+      - key: LOG_LEVEL
+        value: INFO
+    healthCheckPath: /health
+
+  - type: redis
+    name: aethelgard-redis
+    plan: free
+    maxmemoryPolicy: allkeys-lru

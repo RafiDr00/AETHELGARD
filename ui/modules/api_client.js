@@ -2,7 +2,7 @@
 export function getApiBaseUrl() {
   return (typeof window !== 'undefined' && window.AETHELGARD_API_URL)
     ? window.AETHELGARD_API_URL
-    : 'https://aethelgard-api.fly.dev';
+    : 'https://aethelgard-api.onrender.com';
 }
 
 
