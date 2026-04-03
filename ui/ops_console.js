@@ -1,5 +1,5 @@
-import { apiGet, apiPost, ensureApiKey, getApiKey, getApiBaseUrl } from '/modules/api_client.js';
-import { createSparkHistory, clamp, updateMetric, pushHistory, renderSparks } from '/modules/metrics.js';
+import { apiGet, apiPost, ensureApiKey, getApiKey, getApiBaseUrl } from './modules/api_client.js';
+import { createSparkHistory, clamp, updateMetric, pushHistory, renderSparks } from './modules/metrics.js';
 
 function tick(){
   const n=new Date();
