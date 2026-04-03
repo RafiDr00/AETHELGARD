@@ -335,12 +335,99 @@ async function triggerChaos(signal){
   }
 }
 
-document.querySelectorAll('.cb[data-signal]').forEach((button)=>{
-  button.addEventListener('click',()=>{
-    const signal=button.getAttribute('data-signal')||'api';
-    triggerChaos(signal);
+
+// --- Chaos buttons: real pipeline trigger and SSE wiring ---
+document.querySelectorAll('.cb').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const signal = btn.dataset.signal;
+    const scenarioMap = {
+      api: 'payment_latency_spike',
+      mem: 'memory_leak',
+      cpu: 'cpu_saturation',
+      db:  'dependency_failure',
+      net: 'network_partition',
+      cas: 'cascade_failure',
+    };
+    const scenario = scenarioMap[signal] || signal;
+
+    btn.classList.add('active');
+    document.getElementById('pipe-badge').textContent = 'RUNNING';
+    document.getElementById('state-indicator').textContent = '● ACTIVE';
+    document.getElementById('state-indicator').className = 'h-run-state active';
+
+    try {
+      const res = await fetch(`/api/v1/pipeline/run?scenario=${scenario}`, {
+        method: 'POST',
+        headers: { 'X-API-Key': 'test123' },
+      });
+      const job = await res.json();
+      if (!job.job_id) throw new Error('No job_id returned');
+
+      connectSSE(job.job_id);
+    } catch (err) {
+      console.error('Pipeline trigger failed', err);
+      addStreamEvent({ type: 'error', message: err.message });
+    } finally {
+      btn.classList.remove('active');
+    }
   });
 });
+
+function connectSSE(jobId) {
+  const nodeMap = { detection: 0, diagnosis: 1, remediation: 2, validation: 3, deployment: 4 };
+  const es = new EventSource(`/api/v1/stream/events?job_id=${jobId}`);
+
+  es.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    const idx = nodeMap[data.stage];
+    if (idx === undefined) return;
+
+    const node = document.getElementById(`n${idx}`);
+    const sub  = document.getElementById(`nd${idx}`);
+    const label = document.getElementById(`l${idx}`);
+
+    if (data.status === 'running') {
+      node.className = 'node active';
+      sub.textContent  = 'processing';
+      label.style.color = 'var(--accent)';
+    } else if (data.status === 'complete') {
+      node.className = 'node done';
+      sub.textContent  = 'done';
+      label.style.color = 'var(--ok)';
+      updateProgress(idx);
+    } else if (data.status === 'healthy') {
+      document.getElementById('pipe-badge').textContent = 'HEALTHY';
+      document.getElementById('state-indicator').textContent = '● NOMINAL';
+      document.getElementById('state-indicator').className = 'h-run-state ok';
+      es.close();
+    }
+
+    if (data.stage === 'deployment' && data.status === 'complete') {
+      document.getElementById('pipe-badge').textContent = 'RESOLVED';
+      document.getElementById('state-indicator').textContent = '● NOMINAL';
+      document.getElementById('state-indicator').className = 'h-run-state ok';
+      addResolution(jobId, data.stage);
+      es.close();
+    }
+  };
+
+  es.onerror = () => es.close();
+}
+
+function updateProgress(completedIdx) {
+  const pct = Math.round(((completedIdx + 1) / 5) * 100);
+  document.getElementById('pp-fill').style.width = pct + '%';
+  document.getElementById('pp-pct').textContent = pct + '%';
+  document.getElementById('pp-status').textContent = 'RUNNING';
+}
+
+function addResolution(jobId, stage) {
+  const log = document.getElementById('resolutions');
+  const entry = document.createElement('div');
+  entry.className = 'ml';
+  entry.innerHTML = `<span class="ml-t">${new Date().toLocaleTimeString()}</span><span class="ml-v">Job ${jobId.slice(0,8)} resolved at ${stage}</span>`;
+  log.prepend(entry);
+}
 
 startLogStream();
 refreshOps();

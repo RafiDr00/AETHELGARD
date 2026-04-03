@@ -9,42 +9,59 @@ logger = get_logger(__name__)
 
 class AgentCoordinator:
     """Manages execution progression through the agent stages."""
-    
-    def __init__(self, detection_agent, diagnosis_agent, remediation_agent, validation_agent, deployment_agent):
-        self.detection_agent = detection_agent
-        self.diagnosis_agent = diagnosis_agent
-        self.remediation_agent = remediation_agent
-        self.validation_agent = validation_agent
-        self.deployment_agent = deployment_agent
 
-    async def dispatch_next(self, job_id: str) -> None:
-        pass
+    def __init__(self, *args, **kwargs):
+        self.knowledge_engine = kwargs.get('knowledge_engine', None)
+        self.sandbox_executor = kwargs.get('sandbox_executor', None)
 
-    async def handle_agent_result(self, result: Any) -> None:
-        pass
+    async def run_detection(self, metrics: Any, scenario: str) -> dict:
+        from agents.detection_agent import DetectionAgent
+        from listener.real_metrics import generate_scenario_metrics
+        from core.models import ServiceMetric
 
-    async def determine_next_state(self, current_state: str, result: Any) -> str:
-        """Derive next pipeline execution stage."""
-        pass
+        agent = DetectionAgent()
+        await agent.initialize()
 
-    async def run_detection(self, metrics: List[Any]) -> Optional[Anomaly]:
-        return await self.detection_agent.analyze_metrics(metrics)
+        if metrics:
+            service_metrics = metrics
+        else:
+            raw = generate_scenario_metrics(scenario)
+            service_metrics = [ServiceMetric(**m) if isinstance(m, dict) else m for m in raw]
 
-    async def run_diagnosis(self, anomaly: Anomaly) -> Optional[Diagnosis]:
-        return await self.diagnosis_agent.diagnose(anomaly)
+        anomaly = await agent.analyze_metrics(service_metrics)
+        return {"anomaly": anomaly}
 
-    async def run_remediation(self, diagnosis: Diagnosis) -> Optional[Patch]:
-        return await self.remediation_agent.generate_patch(diagnosis)
-
-    async def run_validation(self, patch: Patch) -> Optional[ValidationResult]:
-        return await self.validation_agent.validate(patch)
-
-    async def run_deployment(self, validation: ValidationResult, patch: Patch, target_service: str) -> Optional[DeploymentRecord]:
-        return await self.deployment_agent.deploy(
-            validation=validation,
-            patch_data={
-                "code_changes": patch.code_changes,
-                "config_changes": patch.config_changes,
-            },
-            target_service=target_service,
+    async def run_diagnosis(self, anomaly, job_id: str) -> dict:
+        from agents.diagnosis_agent import DiagnosisAgent
+        agent = DiagnosisAgent(
+            knowledge_engine=self.knowledge_engine,
         )
+        await agent.initialize()
+        diagnosis = await agent.diagnose(anomaly)
+        return {"diagnosis": diagnosis}
+
+    async def run_remediation(self, diagnosis, job_id: str) -> dict:
+        from agents.remediation_agent import RemediationAgent
+        agent = RemediationAgent(
+            knowledge_engine=self.knowledge_engine,
+            sandbox_executor=self.sandbox_executor,
+        )
+        await agent.initialize()
+        patch = await agent.remediate(diagnosis)
+        return {"patch": patch}
+
+    async def run_validation(self, patch, job_id: str) -> dict:
+        from agents.validation_agent import ValidationAgent
+        agent = ValidationAgent(
+            sandbox_executor=self.sandbox_executor,
+        )
+        await agent.initialize()
+        result = await agent.validate(patch)
+        return {"result": result}
+
+    async def run_deployment(self, patch, validation_result, job_id: str) -> dict:
+        from agents.deployment_agent import DeploymentAgent
+        agent = DeploymentAgent()
+        await agent.initialize()
+        record = await agent.deploy(patch, validation_result)
+        return {"record": record, "success": record is not None}
