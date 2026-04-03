@@ -570,22 +570,14 @@ if _OTEL_FASTAPI_AVAILABLE and FastAPIInstrumentor is not None:
 from listener.real_metrics import AethelgardMetricsMiddleware
 app.add_middleware(AethelgardMetricsMiddleware, service_name="aethelgard-api")
 
-# FIX #5 — CORS: explicit origins, no wildcard + credentials combination
-_ALLOWED_ORIGINS = [
-    o.strip()
-    for o in os.environ.get(
-        "AETHELGARD_CORS_ORIGINS",
-        "http://localhost:8000"
-    ).split(",")
-    if o.strip()
-]
+# FIX #5 — CORS: handled via settings.cors_origins in core/config.py
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_ALLOWED_ORIGINS,
-    allow_credentials=False,   # FIX: was True — incompatible with allow_origins="*"
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "X-API-Key"],
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

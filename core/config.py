@@ -12,7 +12,7 @@ import tempfile
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -157,6 +157,7 @@ class Settings(BaseSettings):
     app_host: str = "127.0.0.1"
     app_port: int = Field(default=8000, env="PORT")
     log_level: str = "INFO"
+    cors_origins: List[str] = Field(default=["http://localhost:8000", "https://rafidr00.github.io"], env="AETHELGARD_CORS_ORIGINS")
 
     # --- Subsystem Configs ---
     redis: RedisConfig = Field(default_factory=RedisConfig)
