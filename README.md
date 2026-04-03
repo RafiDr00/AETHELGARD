@@ -3,7 +3,6 @@
 [![CI](https://github.com/RafiDr00/AETHELGARD/actions/workflows/ci.yml/badge.svg)](https://github.com/RafiDr00/AETHELGARD/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/tests-110%20passing-brightgreen)](https://github.com/RafiDr00/AETHELGARD/actions)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
-[![Docker](https://img.shields.io/badge/docker-ready-blue)](https://hub.docker.com/)
 
 > **Live Demo:** 🔗 [Dashboard](https://rafidr00.github.io/AETHELGARD) · [API](https://aethelgard-api.onrender.com)
 
