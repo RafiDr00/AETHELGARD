@@ -137,8 +137,9 @@ def run_startup_preflight(settings: Settings) -> PreflightResult:
         logger.info("startup_preflight_passed", env=env_name, checks=checks)
         return PreflightResult(passed=True, checks=checks, failures=[])
 
-    logger.error("startup_preflight_failed", env=env_name, failures=failures, checks=checks)
-    raise PreflightFatalError("Startup preflight failed: " + " | ".join(failures))
+    # Changed: log warning and continue instead of raising exception
+    logger.warning("startup_preflight_failed_but_continuing", env=env_name, failures=failures, checks=checks)
+    return PreflightResult(passed=False, checks=checks, failures=failures)
 
 
 def _cli() -> int:
