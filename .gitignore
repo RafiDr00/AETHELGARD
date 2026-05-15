@@ -14,13 +14,6 @@ build/
 eggs/
 *.egg
 
-# Node
-node_modules/
-*.tsbuildinfo
-
-# mypy
-.mypy_cache/
-
 # IDE
 .idea/
 .vscode/
@@ -48,23 +41,22 @@ Thumbs.db
 # Logs
 logs/
 *.log
-build_out.txt
-pytest_results.txt
-
-# Local audit / temp outputs
-.audit_*.txt
-.pytest_*.txt
-.pytest_rc*.txt
 
 # Test
 .coverage
 htmlcov/
 .pytest_cache/
-*.pytest_results.txt
-
-# Bundled installers / vendor binaries
-tools/docker-installer/
-*.exe
 
 # Kubernetes
 *.kubeconfig
+
+# Node
+node_modules/
+
+# Stale machine-specific workspace copies (never commit these)
+*-DESKTOP-TMSRIGR*
+
+# CI / audit scratch files (written by local audit scripts, not source)
+.audit_*.txt
+.pytest_*.txt
+.pytest_rc*.txt

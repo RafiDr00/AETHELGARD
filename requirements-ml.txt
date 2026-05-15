@@ -1,0 +1,23 @@
+# ============================================
+# Aethelgard v2 — ML / Embedding Dependencies
+# ============================================
+# WARNING: This file adds approximately 2 GB to the image (torch CPU wheels
+# alone are ~1.8 GB).  Users who do not need semantic search or embedding-based
+# RAG can omit this file at install time — all other platform features remain
+# fully functional without it.
+#
+# Install with:  pip install -r requirements-ml.txt
+# Skip with:     pip install -r requirements.txt  (remove the -r reference first)
+
+# --- Embeddings & Semantic Search ---
+sentence-transformers==2.2.2
+faiss-cpu==1.7.4
+
+# --- Numerical / Scientific ---
+numpy==1.26.2
+scikit-learn>=1.3.0,<2.0.0
+
+# --- Deep Learning Runtime ---
+# sentence-transformers requires torch; the range pin avoids pulling in a
+# major-version upgrade with breaking API changes while allowing patch fixes.
+torch>=2.0.0,<3.0.0

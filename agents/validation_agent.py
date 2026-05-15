@@ -1,5 +1,5 @@
 """
-Aethelgard — Validation Agent
+Aethelgard v2 — Validation Agent
 
 Validates generated patches through a multi-stage safety pipeline:
 1. Static code analysis
@@ -35,7 +35,7 @@ from core.models import (
 logger = get_logger(__name__)
 
 
-# Security policy rules
+# Security policy rules — patterns matched with re.DOTALL | re.IGNORECASE
 SECURITY_POLICIES = {
     "no_eval": {
         "pattern": r"\beval\s*\(",
@@ -48,7 +48,7 @@ SECURITY_POLICIES = {
         "severity": "critical",
     },
     "no_subprocess_shell": {
-        "pattern": r"subprocess\.\w+\(.*shell\s*=\s*True",
+        "pattern": r"subprocess\.\w+\(.*?shell\s*=\s*True",
         "description": "Shell=True in subprocess is prohibited",
         "severity": "critical",
     },
@@ -63,7 +63,9 @@ SECURITY_POLICIES = {
         "severity": "high",
     },
     "no_hardcoded_secrets": {
-        "pattern": r"(?:password|secret|api_key|token)\s*=\s*['\"][^'\"]+['\"]",
+        # Catches: password = "...", secret_key = '...', token="...", api_key = '...'
+        # Excludes placeholders ({...}), env-var reads, and empty values.
+        "pattern": r"""(?:password|secret(?:_key)?|api_key|token|passwd)\s*=\s*['"][^{}'"\s][^'"]{3,}['"]""",
         "description": "Hardcoded secrets detected",
         "severity": "critical",
     },
@@ -307,7 +309,7 @@ class ValidationAgent(BaseAgent):
 
         for filepath, code in code_changes.items():
             for policy_name, policy in SECURITY_POLICIES.items():
-                matches = re.findall(policy["pattern"], code, re.IGNORECASE)
+                matches = re.findall(policy["pattern"], code, re.IGNORECASE | re.DOTALL)
                 if matches:
                     severity = policy["severity"]
                     if severity in ("critical", "high"):

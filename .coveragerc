@@ -1,0 +1,20 @@
+[run]
+source =
+    agents
+    core
+    application
+    infrastructure
+    domain
+
+omit =
+    tests/*
+    experiments/*
+    scripts/*
+    services/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError
+    \.\.\.

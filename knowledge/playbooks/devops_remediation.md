@@ -47,11 +47,6 @@
 4. Implement backpressure
 5. Review producer rate
 
-#### Payment Service Failures
-1. **Latency Spike**: If `payment_service` latency > 2s, check DB pool. Action: Restart service or scale.
-2. **Error Rate**: If `payment_service` errors > 5%, possible downstream failure. Action: Verify external gateways.
-3. **Memory Leak**: If `payment_service` memory > 500MB, possible leak. Action: Restart container immediately via Docker API.
-
 ### Post-Incident Actions
 1. Store remediation as knowledge
 2. Update runbooks

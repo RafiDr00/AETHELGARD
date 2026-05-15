@@ -26,8 +26,16 @@ class Job(BaseModel):
     failure_stage: Optional[str] = None
     failure_reason: Optional[str] = None
     awaiting_approval: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: Optional[datetime] = None
+    result: Optional[Dict[str, Any]] = None
+    service: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    
+
+    @property
+    def job_id(self) -> str:
+        return self.id
+
     @property
     def duration_seconds(self) -> Optional[float]:
         if self.started_at and self.finished_at:
@@ -48,4 +56,8 @@ class Job(BaseModel):
             "failure_stage": self.failure_stage,
             "failure_reason": self.failure_reason,
             "awaiting_approval": self.awaiting_approval,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

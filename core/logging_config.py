@@ -1,5 +1,5 @@
 """
-Aethelgard — Structured Logging Configuration
+Aethelgard v2 — Structured Logging Configuration
 
 Production-grade structured logging with context propagation,
 correlation IDs, and multi-sink output (console + file + JSON).

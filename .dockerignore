@@ -1,53 +1,80 @@
 # ────────────────────────────────────────────
 # Aethelgard — Docker build context exclusions
 # ────────────────────────────────────────────
+# Keep this file strict: every MB excluded here is an MB that doesn't get
+# hashed, transferred to the daemon, and potentially baked into the image.
 
-# Python caches
+# ── Secrets (CRITICAL — must never enter the image) ─────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Version control ──────────────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+
+# ── Documentation & markdown ─────────────────────────────────────────────────
+docs/
+*.md
+!README.md
+
+# ── Development / research code not needed at runtime ────────────────────────
+experiments/
+scripts/
+tools/
+
+# ── Tests ────────────────────────────────────────────────────────────────────
+tests/
+.pytest_cache/
+.coveragerc
+.coverage
+htmlcov/
+
+# ── Frontend (built artifact served by nginx; source not needed in API image) ─
+ui/
+frontend/
+# Redundant but explicit — node_modules can be enormous
+node_modules/
+
+# ── Infrastructure / deployment config (not needed inside the container) ─────
+infra/
+deployment/
+.github/
+
+# ── Dashboard (separate service; excluded from API image) ────────────────────
+dashboard/
+
+# ── Runtime data and logs (written at runtime, not baked in) ─────────────────
+data/
+logs/
+*.log
+
+# ── Python caches and build artifacts ────────────────────────────────────────
 __pycache__/
 **/__pycache__/
 *.pyc
 *.pyo
 *.pyd
 .mypy_cache/
-.pytest_cache/
 *.egg-info/
 dist/
 build/
 
-# Virtual environments
+# ── Virtual environments ──────────────────────────────────────────────────────
 .venv/
 venv/
 env/
 
-# Git
-.git/
-.gitignore
-
-# Audit and CI scratch files
+# ── CI / audit scratch files ─────────────────────────────────────────────────
 .audit_*.txt
 .pytest_*.txt
 .pytest_rc*.txt
 
-# Logs
-logs/
-*.log
-
-# Secrets / env files  (never bake into image)
-.env
-.env.*
-!.env.example
-
-# OS noise
-.DS_Store
-Thumbs.db
-
-# IDE
+# ── Editor and OS noise ───────────────────────────────────────────────────────
 .vscode/
 .idea/
-
-# Tools / scripts not required at runtime
-tools/
-scripts/
-
-# Tests not required in production image
-tests/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

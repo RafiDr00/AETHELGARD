@@ -1,167 +1,155 @@
-networks:
-  aethelgard:
-    driver: bridge
+# ============================================
+# Aethelgard v2 — Docker Compose
+# Complete platform infrastructure
+# ============================================
 
-volumes:
-  redis_data: {}
-  prometheus_data: {}
-  grafana_data: {}
+version: "3.9"
 
 services:
+  # ─────────────────────────────────────
+  # Core Platform
+  # ─────────────────────────────────────
   aethelgard-api:
     build:
       context: ..
-      dockerfile: Dockerfile
+      dockerfile: infra/Dockerfile
     container_name: aethelgard-api
+    ports:
+      - "8000:8000"
     environment:
-      - APP_ENV=${APP_ENV:-development}
-      - APP_HOST=0.0.0.0
-      - APP_PORT=8000
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - AETHELGARD_API_KEY=${AETHELGARD_API_KEY:-dev-aethelgard-key-changeme}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-dummy-local-key}
+      - APP_ENV=development
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
-    expose:
-      - "8000"
-    networks: [aethelgard]
+      - LOG_LEVEL=INFO
     depends_on:
       redis:
-        condition: service_started
-      jaeger:
-        condition: service_started
+        condition: service_healthy
+    volumes:
+      - ../data:/app/data
+      - ../logs:/app/logs
+    networks:
+      - aethelgard-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 20s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
-  gateway:
-    image: nginx:1.27-alpine
-    container_name: aethelgard-gateway
+  # ─────────────────────────────────────
+  # Dashboard
+  # ─────────────────────────────────────
+  dashboard:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    container_name: aethelgard-dashboard
+    command: streamlit run dashboard/streamlit_app.py --server.port=8501 --server.address=0.0.0.0
     ports:
-      - "8000:8000"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - "8501:8501"
+    environment:
+      - APP_ENV=development
+      - REDIS_HOST=redis
     depends_on:
       - aethelgard-api
-    networks: [aethelgard]
+    networks:
+      - aethelgard-net
     restart: unless-stopped
 
-  payment-service:
-    image: python:3.11-slim
-    container_name: payment-service
-    working_dir: /app
-    volumes:
-      - ..:/app
-    command: >
-      sh -c "pip install --no-cache-dir fastapi uvicorn prometheus-client psutil &&
-      python -X utf8 services/payment_service.py"
-    ports:
-      - "8001:8001"
-    networks: [aethelgard]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
-      interval: 20s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
-
+  # ─────────────────────────────────────
+  # Redis (Event Bus)
+  # ─────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: aethelgard-redis
-    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
-    volumes:
-      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
-      - redis_data:/data
     ports:
       - "6379:6379"
-    networks: [aethelgard]
+    volumes:
+      - redis-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - aethelgard-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 15s
-      timeout: 5s
+      interval: 5s
+      timeout: 3s
       retries: 5
 
-  jaeger:
-    image: jaegertracing/all-in-one:1.55
-    container_name: aethelgard-jaeger
-    ports:
-      - "16686:16686"
-      - "4317:4317"
-      - "4318:4318"
-      - "14268:14268"
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
-      - SPAN_STORAGE_TYPE=memory
-    networks: [aethelgard]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:14269/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+  # ─────────────────────────────────────
+  # Sandbox Runner
+  # ─────────────────────────────────────
+  sandbox:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.sandbox
+    container_name: aethelgard-sandbox
+    networks:
+      - aethelgard-net
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=100M
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
 
+  # ─────────────────────────────────────
+  # Monitoring (Optional)
+  # ─────────────────────────────────────
   prometheus:
-    image: prom/prometheus:v2.50.1
+    image: prom/prometheus:latest
     container_name: aethelgard-prometheus
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
-      - prometheus_data:/prometheus
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--storage.tsdb.retention.time=15d"
-      - "--web.enable-lifecycle"
-      - "--web.enable-admin-api"
-    networks: [aethelgard]
+      - prometheus-data:/prometheus
+    networks:
+      - aethelgard-net
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
+    profiles:
+      - monitoring
 
   grafana:
-    image: grafana/grafana:10.3.1
+    image: grafana/grafana:latest
     container_name: aethelgard-grafana
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
+      - GF_SECURITY_ADMIN_PASSWORD=aethelgard
     volumes:
-      - grafana_data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboard.json:/var/lib/grafana/dashboards/aethelgard.json:ro
-    networks: [aethelgard]
+      - grafana-data:/var/lib/grafana
+    networks:
+      - aethelgard-net
     restart: unless-stopped
-    depends_on:
-      prometheus:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+    profiles:
+      - monitoring
 
-  alertmanager:
-    image: prom/alertmanager:v0.27.0
-    container_name: aethelgard-alertmanager
-    ports:
-      - "9093:9093"
-    volumes:
-      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-    networks: [aethelgard]
-    restart: unless-stopped
+# ─────────────────────────────────────
+# Volumes
+# ─────────────────────────────────────
+volumes:
+  redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+# ─────────────────────────────────────
+# Networks
+# ─────────────────────────────────────
+networks:
+  aethelgard-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

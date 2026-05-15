@@ -1,4 +1,4 @@
-# Aethelgard — Observability Debug Runbook
+# Aethelgard v2 — Observability Debug Runbook
 ## How to Diagnose a Failed Remediation Run
 
 This runbook explains how to trace a failed remediation from first alert to root
@@ -10,7 +10,7 @@ cause using the telemetry stack (Jaeger traces + Prometheus/Grafana metrics).
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│  Aethelgard                                                        │
+│  Aethelgard v2                                                        │
 │                                                                       │
 │  FastAPI  ──► OpenTelemetry SDK ──► OTLP ──► Jaeger (traces)         │
 │     │                                                                 │
@@ -228,7 +228,7 @@ histogram_quantile(0.90,
 Use the debug scenario with an intentionally long-running script:
 ```bash
 curl -X POST http://localhost:8000/pipeline/run?scenario=payment_latency_spike \
-  -H "X-API-Key: <your-api-key>"
+  -H "X-API-Key: dev-aethelgard-key-changeme"
 
 # Poll result
 curl http://localhost:8000/pipeline/jobs/<job_id>

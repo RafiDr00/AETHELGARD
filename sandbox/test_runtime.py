@@ -1,5 +1,5 @@
 """
-Aethelgard — Sandbox Runtime Verification Module
+Aethelgard v2 — Sandbox Runtime Verification Module
 
 Usage:
     python -m sandbox.test_runtime

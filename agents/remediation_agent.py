@@ -1,5 +1,5 @@
 """
-Aethelgard — Remediation Agent
+Aethelgard v2 — Remediation Agent
 
 Generates infrastructure patches based on diagnosis results.
 Uses RAG-augmented knowledge to produce contextually appropriate fixes
@@ -228,7 +228,7 @@ REMEDIATION_TEMPLATES = {
                 
                 import asyncio
                 from enum import Enum
-                from datetime import datetime, timedelta
+                from datetime import datetime, timedelta, timezone
                 
                 
                 class CircuitState(Enum):
@@ -278,14 +278,14 @@ REMEDIATION_TEMPLATES = {
                 
                     def _on_failure(self):
                         self.failure_count += 1
-                        self.last_failure_time = datetime.utcnow()
+                        self.last_failure_time = datetime.now(timezone.utc)
                         if self.failure_count >= self.failure_threshold:
                             self.state = CircuitState.OPEN
                 
                     def _should_try_reset(self) -> bool:
                         if self.last_failure_time is None:
                             return True
-                        return datetime.utcnow() - self.last_failure_time > self.recovery_timeout
+                        return datetime.now(timezone.utc) - self.last_failure_time > self.recovery_timeout
             """),
         },
         "config_changes": {

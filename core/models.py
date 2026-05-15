@@ -1,5 +1,5 @@
 """
-Aethelgard — Core Domain Models
+Aethelgard v2 — Core Domain Models
 
 Pydantic models representing the core domain entities across the platform.
 These models are used for event serialization, agent communication,
@@ -89,7 +89,6 @@ class RemediationStatus(str, Enum):
     VALIDATION_FAILED = "validation_failed"
     SANDBOX_FAILED = "sandbox_failed"
     DEDUPLICATED = "deduplicated"
-    AWAITING_APPROVAL = "awaiting_approval"
 
 
 class FailureStage(str, Enum):
@@ -288,13 +287,14 @@ class Event(BaseModel):
     trace_id: Optional[str] = None
 
     def to_stream_data(self) -> Dict[str, str]:
-        """Serialize for Redis Streams."""
+        """Serialize for Redis Streams. Stores only the payload dict, not the full event."""
+        import json
         return {
             "id": self.id,
             "event_type": self.event_type.value,
             "timestamp": self.timestamp.isoformat(),
             "source_agent": self.source_agent.value,
-            "payload": self.model_dump_json(),
+            "payload": json.dumps(self.payload),
             "correlation_id": self.correlation_id or "",
             "trace_id": self.trace_id or "",
         }
@@ -303,13 +303,16 @@ class Event(BaseModel):
     def from_stream_data(cls, data: Dict[str, str]) -> Event:
         """Deserialize from Redis Streams."""
         import json
-        payload_data = json.loads(data.get("payload", "{}"))
+        raw = data.get("payload", "{}")
+        payload_data = json.loads(raw) if raw else {}
+        if not isinstance(payload_data, dict):
+            payload_data = {}
         return cls(
             id=data.get("id", str(uuid.uuid4())),
             event_type=EventType(data["event_type"]),
             timestamp=datetime.fromisoformat(data["timestamp"]),
             source_agent=AgentType(data["source_agent"]),
-            payload=payload_data if isinstance(payload_data, dict) else json.loads(payload_data).get("payload", {}),
+            payload=payload_data,
             correlation_id=data.get("correlation_id") or None,
             trace_id=data.get("trace_id") or None,
         )

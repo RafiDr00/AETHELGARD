@@ -1,5 +1,5 @@
 """
-Aethelgard — FastAPI Interfacenagement
+Aethelgard v2 — Core Configuration Management
 
 Centralized configuration using Pydantic Settings with environment variable binding.
 Supports hierarchical configuration for all platform subsystems.
@@ -12,7 +12,7 @@ import tempfile
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -49,11 +49,8 @@ class LLMConfig(BaseSettings):
     """LLM / AI configuration."""
     model_config = SettingsConfigDict(env_prefix="OPENAI_")
 
-    provider: str = "openai"
-    api_key: str = ""
+    api_key: str = "not-set"
     model: str = "gpt-4"
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.1"
     temperature: float = 0.1
     max_tokens: int = 4096
     request_timeout: int = 60
@@ -74,7 +71,7 @@ class SandboxConfig(BaseSettings):
     """Sandbox execution environment configuration."""
     model_config = SettingsConfigDict(env_prefix="SANDBOX_")
 
-    image: str = "aethelgard-sandbox:v1"
+    image: str = "aethelgard-sandbox:latest"
     timeout: int = 30
     memory_limit: str = "256m"
     cpu_limit: float = 0.5
@@ -102,8 +99,8 @@ class AWSConfig(BaseSettings):
     """AWS cloud simulation configuration."""
     model_config = SettingsConfigDict(env_prefix="AWS_")
 
-    access_key_id: str = ""
-    secret_access_key: str = ""
+    access_key_id: str = "not-set"
+    secret_access_key: str = "not-set"
     region: str = "us-east-1"
     s3_bucket: str = "aethelgard-artifacts"
 
@@ -129,18 +126,25 @@ class AgentConfig(BaseSettings):
     diagnosis_confidence_threshold: float = 0.75
 
 
+class DashboardConfig(BaseSettings):
+    """Streamlit dashboard configuration."""
+
+    streamlit_port: int = 8501
+    dashboard_refresh_interval: int = 5
+    max_timeline_events: int = 100
+    chart_history_hours: int = 24
+
+
 class DedupConfig(BaseSettings):
     """Pipeline deduplication configuration."""
     model_config = SettingsConfigDict(env_prefix="DEDUP_")
 
-    # 120s: prevents persistent incidents from re-triggering immediately after
-    # a pipeline completes. Configurable via DEDUP_FINGERPRINT_TTL_SECONDS env var.
-    fingerprint_ttl_seconds: float = 120.0
+    fingerprint_ttl_seconds: float = 5.0
 
 
 class Settings(BaseSettings):
     """
-    Root configuration container for Aethelgard.
+    Root configuration container for Aethelgard v2.
     Aggregates all subsystem configurations.
     """
     model_config = SettingsConfigDict(
@@ -151,13 +155,12 @@ class Settings(BaseSettings):
     )
 
     # --- Application ---
-    app_name: str = "aethelgard"
+    app_name: str = "aethelgard-v2"
     app_env: Environment = Environment.DEVELOPMENT
-    app_version: str = "1.0.0"
+    app_version: str = "2.0.0"
     app_host: str = "127.0.0.1"
-    app_port: int = Field(default=8000, env="PORT")
+    app_port: int = 8000
     log_level: str = "INFO"
-    cors_origins: List[str] = Field(default=["http://localhost:8000", "https://rafidr00.github.io"], env="AETHELGARD_CORS_ORIGINS")
 
     # --- Subsystem Configs ---
     redis: RedisConfig = Field(default_factory=RedisConfig)
@@ -168,6 +171,7 @@ class Settings(BaseSettings):
     aws: AWSConfig = Field(default_factory=AWSConfig)
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
     agents: AgentConfig = Field(default_factory=AgentConfig)
+    dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     dedup: DedupConfig = Field(default_factory=DedupConfig)
 
     @property

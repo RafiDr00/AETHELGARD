@@ -1,5 +1,5 @@
 """
-Aethelgard — Log Listener
+Aethelgard v2 — Log Listener
 
 Listens for incoming log streams from microservices,
 parses structured data, extracts metrics, and produces
@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from core.logging_config import get_logger
 from core.models import LogEntry, ServiceMetric
-from services.log_simulator import LogSimulator
+from experiments.scenario_runner import LogSimulator
 
 logger = get_logger(__name__)
 

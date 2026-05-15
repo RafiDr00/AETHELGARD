@@ -1,10 +1,12 @@
 import json
 import time
+from datetime import datetime, timezone
 from typing import Optional, List
 import redis.asyncio as aioredis
 from core.config import get_settings
 from core.logging_config import get_logger
 from domain.job import Job
+from infrastructure.redis_client import get_shared_redis_client
 
 logger = get_logger(__name__)
 
@@ -16,18 +18,10 @@ class JobStore:
 
     def __init__(self, redis_client: Optional[aioredis.Redis] = None):
         self._redis = redis_client
-        self._settings = get_settings()
 
     async def _get_redis(self) -> aioredis.Redis:
         if not self._redis:
-            self._redis = aioredis.Redis(
-                host=self._settings.redis.host,
-                port=self._settings.redis.port,
-                db=self._settings.redis.db,
-                password=self._settings.redis.password,
-                decode_responses=True,
-                socket_timeout=self._settings.redis.socket_timeout,
-            )
+            self._redis = get_shared_redis_client()
         return self._redis
 
     async def create_job(self, scenario: str) -> Job:
@@ -54,8 +48,9 @@ class JobStore:
 
     async def _persist_job(self, job: Job) -> None:
         redis = await self._get_redis()
+        job.updated_at = datetime.now(timezone.utc) if hasattr(job, 'updated_at') else None
         payload = job.model_dump()
-        payload["updated_at"] = time.time()
+        payload["job_id"] = job.id
         serialized = json.dumps(payload, default=str)
         key = f"{self._REDIS_JOB_PREFIX}{job.id}"
         try:
@@ -84,18 +79,11 @@ class FingerprintStore:
     """Store for anomaly fingerprints to prevent duplicate active remediations."""
     def __init__(self, redis_client: Optional[aioredis.Redis] = None):
         self._redis = redis_client
-        self._settings = get_settings()
+        self._settings = get_settings()  # retained for fingerprint_ttl_seconds
 
     async def _get_redis(self) -> aioredis.Redis:
         if not self._redis:
-            self._redis = aioredis.Redis(
-                host=self._settings.redis.host,
-                port=self._settings.redis.port,
-                db=self._settings.redis.db,
-                password=self._settings.redis.password,
-                decode_responses=True,
-                socket_timeout=self._settings.redis.socket_timeout,
-            )
+            self._redis = get_shared_redis_client()
         return self._redis
 
     async def claim_fingerprint(self, fingerprint: str, ttl_seconds: float = None) -> bool:

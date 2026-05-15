@@ -1,5 +1,5 @@
 """
-Aethelgard — RAG Knowledge Engine (Redesigned)
+Aethelgard v2 — RAG Knowledge Engine (Redesigned)
 
 FIX #3: Replace MD5-hash-based embeddings with semantic embeddings.
 
@@ -98,9 +98,8 @@ class RAGEngine:
                         dims=self._embedding_dim)
             self._initialized = True
             return
-        except (ImportError, Exception) as exc:
+        except ImportError:
             logger.info("rag_sentence_transformers_unavailable",
-                        reason=str(exc),
                         note="Install: pip install sentence-transformers faiss-cpu")
 
         # Try TF-IDF (scikit-learn)
@@ -299,30 +298,32 @@ class RAGEngine:
         try:
             from sklearn.metrics.pairwise import cosine_similarity
 
-            docs = self._documents
-            if category:
-                docs = [d for d in docs if d.get("category") == category]
-            if not docs:
+            # Always work from the full corpus; apply category filter post-search
+            # to avoid stale matrix when the filter changes between calls.
+            all_docs = self._documents
+            if not all_docs:
                 return []
 
-            corpus = [d["content"] for d in docs]
+            corpus = [d["content"] for d in all_docs]
             vectorizer = self._tfidf_vectorizer
 
-            if self._tfidf_dirty or len(corpus) != (
-                self._tfidf_matrix.shape[0] if self._tfidf_matrix is not None else 0
-            ):
+            if self._tfidf_dirty or self._tfidf_matrix is None or len(corpus) != self._tfidf_matrix.shape[0]:
                 self._tfidf_matrix = vectorizer.fit_transform(corpus)
                 self._tfidf_dirty = False
 
             query_vec = vectorizer.transform([query_text])
             similarities = cosine_similarity(query_vec, self._tfidf_matrix)[0]
 
-            top_indices = similarities.argsort()[::-1][:top_k]
+            top_indices = similarities.argsort()[::-1]
             results = []
             for idx in top_indices:
-                if similarities[idx] < threshold:
+                if len(results) >= top_k:
+                    break
+                if float(similarities[idx]) < threshold:
+                    break
+                doc = all_docs[idx]
+                if category and doc.get("category") != category:
                     continue
-                doc = docs[idx]
                 results.append({
                     "id": doc["id"],
                     "content": doc["content"][:500],

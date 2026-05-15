@@ -55,7 +55,8 @@ class WorkflowEngine:
             return job
 
         # Guard: Distributed Lock
-        if not await self.lock_manager.acquire(scenario): # Per-scenario lock
+        lock_token = await self.lock_manager.acquire(scenario)  # Per-scenario lock
+        if lock_token is None:
              job.status = JobStatus.FAILED
              job.error = "resource_lock_busy"
              await self.job_store.update_state(job)
@@ -63,17 +64,18 @@ class WorkflowEngine:
              return job
 
         # Trigger background execution
-        asyncio.create_task(self._execute_pipeline(job.id, metrics, fingerprint))
+        asyncio.create_task(self._execute_pipeline(job.id, metrics, fingerprint, lock_token))
         return job
 
 
-    async def _execute_pipeline(self, job_id: str, metrics: Any, fingerprint: str) -> None:
+    async def _execute_pipeline(self, job_id: str, metrics: Any, fingerprint: str, lock_token: str) -> None:
         job = await self.job_store.get_job(job_id)
         if not job:
             return
 
         try:
             async with pipeline_span(job_id, scenario=job.scenario):
+                require_valid_transition(job.status.value, JobStatus.RUNNING.value)
                 job.status = JobStatus.RUNNING
                 job.started_at = datetime.now(timezone.utc)
                 await self.job_store.update_state(job)
@@ -82,6 +84,7 @@ class WorkflowEngine:
                 # Stage 1: Detection
                 detection_result = await self.coordinator.run_detection(metrics, job.scenario)
                 if not detection_result or not detection_result.get("anomaly"):
+                    require_valid_transition(job.status.value, JobStatus.COMPLETED.value)
                     job.status = JobStatus.COMPLETED
                     job.result = {"message": "No anomaly detected. System healthy."}
                     job.finished_at = datetime.now(timezone.utc)
@@ -124,6 +127,7 @@ class WorkflowEngine:
 
                 await self.publisher.publish_stage("deployment", "complete", job_id)
 
+                require_valid_transition(job.status.value, JobStatus.COMPLETED.value)
                 job.status = JobStatus.COMPLETED
                 job.finished_at = datetime.now(timezone.utc)
                 job.result = {
@@ -136,13 +140,23 @@ class WorkflowEngine:
 
         except Exception as e:
             logger.error("pipeline_execution_failed", job_id=job_id, error=str(e))
+            try:
+                require_valid_transition(job.status.value, JobStatus.FAILED.value)
+            except Exception:
+                pass  # always allow transition to failed in error handler
             job.status = JobStatus.FAILED
             job.error = str(e)
             job.finished_at = datetime.now(timezone.utc)
             await self.job_store.update_state(job)
-        finally:
-            await self.lock_manager.release(job.scenario)
+            # Release fingerprint only on failure so the scenario can be
+            # re-triggered within the TTL window.  On success the TTL expiry
+            # is the intentional dedup guard — releasing it here would allow
+            # an immediate duplicate trigger defeating the fingerprint check.
             await self.fingerprint_store.release_fingerprint(fingerprint)
+        finally:
+            # Always release the lock regardless of outcome; leaving it held
+            # would block the scenario until Redis TTL expiry (up to 30 s).
+            await self.lock_manager.release(job.scenario, lock_token)
 
     async def shutdown(self) -> None:
         logger.info("workflow_engine_shutdown")

@@ -1,5 +1,5 @@
 """
-Aethelgard — Knowledge Base Seeder
+Aethelgard v2 — Knowledge Base Seeder
 
 Seeds the RAG knowledge base with remediation playbooks
 and historical data for agent reasoning.
@@ -26,7 +26,7 @@ async def seed():
     """Seed the knowledge base with all playbooks."""
     setup_logging(log_level="WARNING")
     
-    console.print("[bold cyan]🏗️ Aethelgard — Knowledge Base Seeder[/bold cyan]\n")
+    console.print("[bold cyan]🏗️ Aethelgard v2 — Knowledge Base Seeder[/bold cyan]\n")
 
     engine = RAGEngine()
     await engine.initialize()

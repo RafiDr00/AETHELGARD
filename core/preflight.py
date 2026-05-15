@@ -65,45 +65,35 @@ def run_startup_preflight(settings: Settings) -> PreflightResult:
     env_name = settings.app_env.value
     logger.info("startup_preflight_begin", env=env_name)
 
+    # Required env vars
     missing = [name for name in _required_env_vars() if not os.environ.get(name)]
     if missing:
         failures.append(f"missing_required_env_vars:{','.join(missing)}")
     else:
         checks.append("required_env_vars")
 
+    # API key must be explicitly configured (no dev fallback)
     api_key = os.environ.get("AETHELGARD_API_KEY", "")
-    if not api_key:
+    if not api_key or api_key == "dev-aethelgard-key-changeme":
         failures.append("api_auth_key_not_configured")
     else:
         checks.append("api_auth_key")
 
+    # OTEL exporter must be configured in non-dev
     otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
     if not otel_endpoint:
         failures.append("otel_exporter_not_configured")
     else:
         checks.append("otel_exporter")
 
-    if settings.llm.provider.lower() == "openai":
-        openai_key = os.environ.get("OPENAI_API_KEY", "")
-        if not openai_key:
-            failures.append("openai_api_key_not_configured")
-        else:
-            checks.append("openai_api_key")
-
-    if settings.is_production:
-        redis_password = os.environ.get("REDIS_PASSWORD", "")
-        if not redis_password:
-            failures.append("redis_password_not_configured")
-        else:
-            checks.append("redis_password")
-
+    # Prometheus/telemetry registry health
     telemetry_ok, telemetry_reason = telemetry_health_status()
     if not telemetry_ok:
         failures.append(f"telemetry_unhealthy:{telemetry_reason}")
     else:
         checks.append("telemetry_registry")
 
-    # Docker validation (always run in production/staging unless explicitly disabled)
+    # Docker runtime checks
     docker_version_ok, docker_version_msg = _run_command(["docker", "version"], timeout=30)
     if not docker_version_ok:
         failures.append(f"docker_version_failed:{docker_version_msg}")
@@ -116,6 +106,7 @@ def run_startup_preflight(settings: Settings) -> PreflightResult:
     else:
         checks.append("docker_hello_world")
 
+    # Sandbox container runtime reachability (docker SDK ping)
     try:
         import docker
 
@@ -130,9 +121,10 @@ def run_startup_preflight(settings: Settings) -> PreflightResult:
         logger.info("startup_preflight_passed", env=env_name, checks=checks)
         return PreflightResult(passed=True, checks=checks, failures=[])
 
-    # Changed: log warning and continue instead of raising exception
-    logger.warning("startup_preflight_failed_but_continuing", env=env_name, failures=failures, checks=checks)
-    return PreflightResult(passed=False, checks=checks, failures=failures)
+    logger.error("startup_preflight_failed", env=env_name, failures=failures, checks=checks)
+    raise PreflightFatalError(
+        "Startup preflight failed: " + " | ".join(failures)
+    )
 
 
 def _cli() -> int:

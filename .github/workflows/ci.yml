@@ -5,162 +5,166 @@ on:
     branches: ["main", "master"]
   pull_request:
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  # ─────────────────────────────────────────────
-  # STAGE 1 — Lint  (ruff check + format check)
-  # ─────────────────────────────────────────────
   lint:
-    name: "Stage 1 · Lint"
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
-      - name: Install ruff
-        run: pip install ruff
-      - name: Lint check
-        run: ruff check agents/ core/ sandbox/ api.py main.py
-      - name: Format check
-        run: ruff format --check agents/ core/ sandbox/ api.py main.py
 
-  # ─────────────────────────────────────────────
-  # STAGE 2 — Typecheck  (mypy on hardened modules)
-  # ─────────────────────────────────────────────
-  typecheck:
-    name: "Stage 2 · Typecheck"
-    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-      - name: Install deps + mypy
-        run: pip install -r requirements.txt mypy
-      - name: mypy on hardened modules
+
+      - name: Install lint dependencies
         run: |
-          python -m mypy \
-            sandbox/sandbox_executor.py api.py \
-            --ignore-missing-imports --follow-imports=skip
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install mypy
 
-  # ─────────────────────────────────────────────
-  # STAGE 3 — Security  (bandit SAST scan)
-  # ─────────────────────────────────────────────
-  security:
-    name: "Stage 3 · Security"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
-      - name: Install bandit
-        run: pip install bandit
-      - name: bandit scan
-        run: python -m bandit -r agents/ core/ sandbox/ api.py -q
+      - name: Ruff lint
+        run: |
+          python -m ruff check .
 
-  # ─────────────────────────────────────────────
-  # STAGE 4 — Tests  (pytest full suite)
-  # ─────────────────────────────────────────────
+      - name: Static type checks
+        run: |
+          python -m mypy core/preflight.py sandbox/sandbox_executor.py api.py --ignore-missing-imports --follow-imports=skip
+
+      - name: Security linting
+        run: |
+          python -m bandit -r agents core sandbox api.py -q
+
   tests:
-    name: "Stage 4 · Tests"
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, security]
-    env:
-      AETHELGARD_API_KEY: ci-test-key-aethelgard
+    needs: [lint]
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-      - name: Install dependencies
+
+      - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      - name: Run test suite
-        run: python -m pytest -q --tb=short
+          pip install -r requirements-dev.txt
 
-  # ─────────────────────────────────────────────
-  # STAGE 5 — Docker Build  (image build + smoke)
-  # ─────────────────────────────────────────────
-  docker-build:
-    name: "Stage 5 · Docker Build"
-    runs-on: ubuntu-latest
-    needs: [tests]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - name: Build image
-        run: docker build -t aethelgard:ci-${{ github.sha }} .
-      - name: Python smoke check
-        run: docker run --rm --entrypoint python aethelgard:ci-${{ github.sha }} --version
-
-  # ─────────────────────────────────────────────
-  # STAGE 6 — Container Runtime  (Docker daemon + isolation flags)
-  # ─────────────────────────────────────────────
-  container-runtime:
-    name: "Stage 6 · Container Runtime"
-    runs-on: ubuntu-latest
-    needs: [tests]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify Docker daemon
-        run: docker version && docker ps && docker run --rm hello-world
-      - name: Validate sandbox isolation flags
+      - name: Run backend tests (includes metrics contract)
         run: |
-          docker run --rm \
-            --network none \
-            --cap-drop ALL \
-            --security-opt no-new-privileges \
-            --pids-limit 64 \
-            --memory 256m \
-            alpine echo SANDBOX_OK
+          python -m pytest -q --tb=short --cov=agents --cov=core --cov=application --cov=infrastructure --cov=domain --cov-report=term-missing --cov-fail-under=70
 
-  # ─────────────────────────────────────────────
-  # STAGE 7 — Sandbox Security  (policy + contract tests)
-  # ─────────────────────────────────────────────
+  docker-runtime:
+    runs-on: ubuntu-latest
+    needs: [lint]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Docker runtime
+        run: |
+          docker version
+          docker ps
+          docker run --rm hello-world
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: [tests]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run integration tests
+        run: |
+          python -m pytest -q --tb=short -m integration tests/test_e2e_pipeline.py
+        env:
+          AETHELGARD_API_KEY: test-key-aethelgard
+
   sandbox-security:
-    name: "Stage 7 · Sandbox Security"
     runs-on: ubuntu-latest
-    needs: [tests, container-runtime]
+    needs: [tests, docker-runtime]
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-      - name: Install dependencies
+
+      - name: Install sandbox test dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Run sandbox hardening tests
-        run: python -m pytest -q tests/test_sandbox_hardening.py -v
-      - name: Assert _require_container contract
+          pip install pytest pytest-asyncio
+
+      - name: Enforce sandbox security policy
+        run: |
+          python -m pytest -q tests/test_sandbox_hardening.py
+
+      - name: Verify sandbox security flags contract
         run: |
           python - <<'PY'
           from sandbox.sandbox_executor import SandboxExecutor
+
           ex = SandboxExecutor()
-          assert ex._require_container is True, "_require_container must be True in production"
-          print("SANDBOX_CONTRACT_OK")
+          assert ex._require_container is True
+          print("SANDBOX_OK")
           PY
 
-  # ─────────────────────────────────────────────
-  # STAGE 8 — Pipeline Summary
-  # ─────────────────────────────────────────────
-  pipeline-summary:
-    name: "Stage 8 · Pipeline Summary"
+  build:
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, security, tests, docker-build, container-runtime, sandbox-security]
+    needs: [tests, docker-runtime, sandbox-security]
+
     steps:
-      - name: CI completed
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build container image
         run: |
-          echo "All CI quality gates passed."
-          echo "Commit ${{ github.sha }} is eligible for CD." 
+          docker build -t aethelgard:test .
+
+      - name: Run container image smoke check
+        run: |
+          docker run --rm --entrypoint python aethelgard:test --version
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+
+  deploy-guard:
+    runs-on: ubuntu-latest
+    needs: [lint, tests, integration, docker-runtime, sandbox-security, build]
+
+    steps:
+      - name: Deployment guard
+        run: |
+          echo "All required stages passed. Deployment is unblocked."

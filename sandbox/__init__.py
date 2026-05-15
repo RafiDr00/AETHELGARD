@@ -1,4 +1,4 @@
-"""Aethelgard — Sandbox Package"""
+"""Aethelgard v2 — Sandbox Package"""
 
 from sandbox.sandbox_executor import SandboxExecutor
 

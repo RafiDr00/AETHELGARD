@@ -1,5 +1,5 @@
 """
-Aethelgard — Observability Layer
+Aethelgard v2 — Observability Layer
 =====================================
 
 Architecture:
@@ -62,9 +62,11 @@ _provider = TracerProvider(resource=_resource)
 # Exporters
 if _OTEL_ENDPOINT:
     # Production: send to Jaeger / Grafana Tempo via OTLP
+    # OTEL_INSECURE=true enables plaintext gRPC (only for localhost/internal endpoints)
+    _otel_insecure = os.environ.get("OTEL_INSECURE", "false").lower() == "true"
     try:
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-        _otlp_exporter = OTLPSpanExporter(endpoint=_OTEL_ENDPOINT, insecure=True)
+        _otlp_exporter = OTLPSpanExporter(endpoint=_OTEL_ENDPOINT, insecure=_otel_insecure)
         _provider.add_span_processor(BatchSpanProcessor(_otlp_exporter))
     except Exception as e:
         print(f"[OTEL] OTLP exporter failed: {e} — falling back to console")

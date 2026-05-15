@@ -1,0 +1,20 @@
+version: '3.9'
+services:
+  api:
+    restart: always
+    environment:
+      - APP_ENV=production
+      - LOG_LEVEL=WARNING
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+  redis:
+    restart: always
+    volumes:
+      - redis_prod_data:/data
+  grafana:
+    restart: always
+volumes:
+  redis_prod_data:

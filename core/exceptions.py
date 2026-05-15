@@ -1,5 +1,5 @@
 """
-Aethelgard — Custom Exception Hierarchy
+Aethelgard v2 — Custom Exception Hierarchy
 
 Domain-specific exceptions for precise error handling
 across the autonomous remediation pipeline.

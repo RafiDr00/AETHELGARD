@@ -1,1 +1,24 @@
-﻿groups: []
+groups:
+  - name: aethelgard_alerts
+    rules:
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP error rate on Aethelgard API"
+      - alert: PipelineStalledTooLong
+        expr: aethelgard_pipeline_running_seconds > 300
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pipeline job has been running for over 5 minutes"
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is unreachable"

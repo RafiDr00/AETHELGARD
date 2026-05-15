@@ -1,5 +1,5 @@
 """
-Aethelgard — Diagnosis Agent
+Aethelgard v2 — Diagnosis Agent
 
 Root cause analysis agent that investigates detected anomalies.
 Uses RAG-augmented reasoning to query the knowledge base for
@@ -12,11 +12,8 @@ Publishes: diagnosis.complete
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-
-import httpx
 
 from agents.base_agent import BaseAgent
 from core.config import get_settings
@@ -247,35 +244,7 @@ class DiagnosisAgent(BaseAgent):
         elif iteration == 2:
             # Action 2: Determine root cause
             pattern_matches = context.get("pattern_matches", {})
-            knowledge_results = context.get("knowledge_results", [])
-
-            anomaly_data = context.get("anomaly", {})
-            llm_diagnosis = await self.generate_llm_diagnosis(
-                metrics=anomaly_data.get("metrics", []),
-                anomaly={
-                    "service_name": context.get("service_name"),
-                    "anomaly_type": context.get("anomaly_type"),
-                    "severity": context.get("severity"),
-                    "description": anomaly_data.get("description"),
-                },
-                rag_context=knowledge_results,
-            )
-
-            root_cause = {
-                "cause": "llm_diagnosis",
-                "description": llm_diagnosis.get("root_cause", "Unknown root cause"),
-                "confidence": llm_diagnosis.get("confidence", 0.0),
-                "category": "llm_inferred",
-                "recommended_actions": [
-                    llm_diagnosis.get("remediation_strategy", "Manual investigation required")
-                ],
-                "reasoning": llm_diagnosis.get("reasoning", ""),
-            }
-
-            if root_cause["confidence"] < self._confidence_threshold:
-                rule_based = self._select_root_cause(pattern_matches, context)
-                if rule_based.get("confidence", 0.0) >= root_cause["confidence"]:
-                    root_cause = rule_based
+            root_cause = self._select_root_cause(pattern_matches, context)
 
             return {
                 "root_cause": root_cause,
@@ -357,201 +326,6 @@ class DiagnosisAgent(BaseAgent):
                 "relevance": 0.85,
             }
         ]
-
-    async def generate_llm_diagnosis(
-        self,
-        metrics: List[Dict[str, Any]],
-        anomaly: Dict[str, Any],
-        rag_context: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
-        """
-        Generate diagnosis using configured LLM provider (OpenAI/Ollama).
-
-        Returns JSON shape:
-        {
-          root_cause: string,
-          reasoning: string,
-          remediation_strategy: string,
-          confidence: number
-        }
-        Falls back to rule-based diagnosis when LLM is unavailable.
-        """
-        settings = get_settings()
-        llm_cfg = settings.llm
-        provider = (llm_cfg.provider or "openai").strip().lower()
-
-        prompt = self._build_llm_diagnosis_prompt(metrics, anomaly, rag_context)
-
-        try:
-            if provider == "ollama":
-                content = await self._call_ollama(prompt)
-            else:
-                content = await self._call_openai(prompt)
-
-            parsed = self._parse_llm_diagnosis_json(content)
-            return {
-                "root_cause": str(parsed.get("root_cause", "Unknown root cause")),
-                "reasoning": str(parsed.get("reasoning", "Insufficient reasoning provided")),
-                "remediation_strategy": str(
-                    parsed.get("remediation_strategy", "Manual investigation required")
-                ),
-                "confidence": self._normalize_confidence(parsed.get("confidence", 0.0)),
-            }
-        except Exception as exc:
-            logger.warning(
-                "llm_diagnosis_fallback",
-                error=str(exc),
-                provider=provider,
-                anomaly_type=anomaly.get("anomaly_type"),
-            )
-            return self._generate_rule_based_llm_fallback(metrics, anomaly)
-
-    def _build_llm_diagnosis_prompt(
-        self,
-        metrics: List[Dict[str, Any]],
-        anomaly: Dict[str, Any],
-        rag_context: List[Dict[str, Any]],
-    ) -> str:
-        metrics_summary = []
-        for metric in metrics[:10]:
-            name = metric.get("metric_name", "unknown")
-            value = metric.get("value", "n/a")
-            unit = metric.get("unit", "")
-            metrics_summary.append(f"- {name}: {value}{unit}")
-
-        anomaly_description = (
-            f"service={anomaly.get('service_name', 'unknown')}; "
-            f"type={anomaly.get('anomaly_type', 'unknown')}; "
-            f"severity={anomaly.get('severity', 'unknown')}; "
-            f"description={anomaly.get('description', 'n/a')}"
-        )
-
-        rag_snippets = []
-        for item in rag_context[:5]:
-            source = item.get("source", "unknown")
-            content = str(item.get("content", "")).strip()
-            if content:
-                rag_snippets.append(f"- [{source}] {content[:500]}")
-
-        return (
-            "You are a senior SRE assistant. Diagnose the production anomaly using provided context. "
-            "Return ONLY strict JSON with keys: root_cause, reasoning, remediation_strategy, confidence. "
-            "confidence must be a number between 0 and 1.\n\n"
-            f"Metrics summary:\n{chr(10).join(metrics_summary) if metrics_summary else '- none provided'}\n\n"
-            f"Anomaly description:\n- {anomaly_description}\n\n"
-            f"RAG playbook snippets:\n{chr(10).join(rag_snippets) if rag_snippets else '- none provided'}"
-        )
-
-    async def _call_openai(self, prompt: str) -> str:
-        settings = get_settings()
-        llm_cfg = settings.llm
-
-        if not llm_cfg.api_key or llm_cfg.api_key == "not-set":
-            raise RuntimeError("OpenAI API key not configured")
-
-        payload = {
-            "model": llm_cfg.model,
-            "temperature": llm_cfg.temperature,
-            "max_tokens": llm_cfg.max_tokens,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": "You are a precise incident diagnosis assistant."},
-                {"role": "user", "content": prompt},
-            ],
-        }
-
-        timeout = httpx.Timeout(llm_cfg.request_timeout)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {llm_cfg.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        return data["choices"][0]["message"]["content"]
-
-    async def _call_ollama(self, prompt: str) -> str:
-        settings = get_settings()
-        llm_cfg = settings.llm
-
-        payload = {
-            "model": llm_cfg.ollama_model,
-            "messages": [
-                {"role": "system", "content": "You are a precise incident diagnosis assistant."},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-            "format": "json",
-        }
-
-        timeout = httpx.Timeout(llm_cfg.request_timeout)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                f"{llm_cfg.ollama_base_url.rstrip('/')}/api/chat",
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        message = data.get("message", {})
-        return str(message.get("content", ""))
-
-    def _parse_llm_diagnosis_json(self, content: str) -> Dict[str, Any]:
-        text = content.strip()
-        try:
-            parsed = json.loads(text)
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            pass
-
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if not match:
-            raise ValueError("No JSON object found in LLM response")
-
-        parsed = json.loads(match.group(0))
-        if not isinstance(parsed, dict):
-            raise ValueError("LLM JSON response is not an object")
-        return parsed
-
-    def _normalize_confidence(self, value: Any) -> float:
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError):
-            return 0.0
-        return max(0.0, min(1.0, numeric))
-
-    def _generate_rule_based_llm_fallback(
-        self,
-        metrics: List[Dict[str, Any]],
-        anomaly: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        anomaly_type = str(anomaly.get("anomaly_type", "unknown"))
-        context = {
-            "anomaly": {
-                "metrics": metrics,
-            }
-        }
-        pattern_matches = self._match_patterns(anomaly_type, context)
-        best = self._select_root_cause(pattern_matches, context)
-
-        remediation_actions = best.get("recommended_actions", [])
-        remediation_strategy = remediation_actions[0] if remediation_actions else "Manual investigation required"
-
-        return {
-            "root_cause": best.get("description", "Unable to determine root cause"),
-            "reasoning": (
-                f"Rule-based fallback selected pattern '{best.get('cause', 'unknown')}' "
-                f"for anomaly type '{anomaly_type}'."
-            ),
-            "remediation_strategy": remediation_strategy,
-            "confidence": self._normalize_confidence(best.get("confidence", 0.0)),
-        }
 
     def _match_patterns(self, anomaly_type: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """Match anomaly against known root cause patterns."""

@@ -8,8 +8,7 @@ ALLOWED_TRANSITIONS: Dict[str, List[str]] = {
     "running": ["awaiting_approval", "completed", "failed"],
     "awaiting_approval": ["running", "failed"],
     "completed": [],
-    "failed": ["pending", "retrying"], # pending for retry after restart/etc
-    "retrying": ["running", "failed"]
+    "failed": ["pending"],
 }
 
 def is_valid_transition(current_state: str, next_state: str) -> bool:

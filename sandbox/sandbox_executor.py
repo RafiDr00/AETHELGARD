@@ -1,5 +1,5 @@
 """
-Aethelgard — Sandbox Executor (Container-Enforced)
+Aethelgard v2 — Sandbox Executor (Container-Enforced)
 
 Security contract:
     - Patch execution is permitted ONLY inside a Docker container.
@@ -337,16 +337,21 @@ class SandboxExecutor:
         """Execute in a real Docker container with seccomp profile."""
         import docker
 
-        docker_errors = getattr(docker, "errors", None)
-        not_found_exc = getattr(docker_errors, "NotFound", Exception) if docker_errors else Exception
-        container_error_exc = getattr(docker_errors, "ContainerError", Exception) if docker_errors else Exception
-
         client = docker.from_env()
         sandbox_config = self._settings.sandbox
 
         with tempfile.TemporaryDirectory() as workspace:
+            workspace_path = Path(workspace).resolve()
             for filepath, content in code_changes.items():
-                dest = Path(workspace) / filepath
+                # Prevent path traversal: resolve and verify dest is inside workspace
+                dest = (workspace_path / filepath).resolve()
+                try:
+                    dest.relative_to(workspace_path)
+                except ValueError:
+                    raise SandboxSecurityViolation(
+                        f"Path traversal attempt blocked: {filepath!r}",
+                        details={"filepath": filepath},
+                    )
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_text(content, encoding="utf-8")
 
@@ -356,29 +361,6 @@ class SandboxExecutor:
                 )
 
             try:
-                logs = []
-                logs.append(f"[{execution_id}] Identifying target service container...")
-                
-                target_image = sandbox_config.image
-                containers_api = getattr(client, "containers", None)
-                get_container = getattr(containers_api, "get", None) if containers_api else None
-                if callable(get_container):
-                    try:
-                        # Attempt to clone real running container
-                        target_container = get_container("payment-service")
-                        logs.append(f"[{execution_id}] Found target: {target_container.short_id} (payment-service)")
-                        logs.append(f"[{execution_id}] Cloning container state to sandbox image...")
-                        cloned = target_container.commit(repository=f"sandbox-clone-{execution_id}")
-                        target_image = cloned.id
-                    except not_found_exc:
-                        logs.append(f"[{execution_id}] Target not found, using base image.")
-                    except Exception as exc:
-                        logs.append(f"[{execution_id}] Target lookup skipped ({exc}), using base image.")
-                else:
-                    logs.append(f"[{execution_id}] Target lookup unavailable, using base image.")
-
-                logs.append(f"[{execution_id}] Applying proposed patch to sandbox...")
-                
                 # Run with explicit list (no shell glob injection)
                 py_files = [
                     f"/workspace/{fp}"
@@ -386,10 +368,9 @@ class SandboxExecutor:
                     if fp.endswith(".py")
                 ]
                 command = [sys.executable, "-m", "py_compile"] + py_files
-                logs.append(f"[{execution_id}] Executing validation tests: {' '.join(command)}")
 
                 container = client.containers.run(
-                    target_image,
+                    sandbox_config.image,
                     command=command,
                     volumes={workspace: {"bind": "/workspace", "mode": "ro"}},
                     mem_limit="256m",
@@ -397,7 +378,7 @@ class SandboxExecutor:
                     network_disabled=True,
                     cap_drop=["ALL"],
                     read_only=True,
-                    tmpfs={"/tmp": "size=64m,noexec"},  # nosec B108
+                    tmpfs={"/tmp": "size=64m,noexec"},  # nosec B108 - required isolated tmpfs mount inside container
                     security_opt=["no-new-privileges:true"],
                     pids_limit=64,
                     remove=True,
@@ -406,27 +387,17 @@ class SandboxExecutor:
                     stdout=True,
                     stderr=True,
                 )
-                
-                # Cleanup clone image
-                if target_image != sandbox_config.image:
-                    try:
-                        client.images.remove(target_image, force=True)
-                    except Exception:
-                        pass
 
-                output = container.decode("utf-8") if isinstance(container, bytes) else str(container)
-                logs.extend(output.splitlines())
-                logs.append(f"[{execution_id}] Validation PASSED. Sandbox destroyed.")
-                
+                output = container.decode("utf-8", errors="replace") if isinstance(container, bytes) else ""
                 return {
                     "passed": True,
                     "exit_code": 0,
-                    "logs": logs,
+                    "logs": output.splitlines(),
                     "violations": [],
                     "container_used": True,
                 }
 
-            except container_error_exc as e:
+            except docker.errors.ContainerError as e:
                 return {
                     "passed": False,
                     "exit_code": e.exit_status,

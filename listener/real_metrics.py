@@ -1,5 +1,5 @@
 """
-Aethelgard — Real Metrics Middleware & Ingestion Layer
+Aethelgard v2 — Real Metrics Middleware & Ingestion Layer
 ==========================================================
 
 FIX #1: Replace LogSimulator with real telemetry ingestion.

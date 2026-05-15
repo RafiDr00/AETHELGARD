@@ -1,5 +1,5 @@
 """
-Aethelgard — Deployment Agent
+Aethelgard v2 — Deployment Agent
 
 Autonomous deployment agent that orchestrates the rollout of
 validated patches to the target infrastructure.
@@ -58,14 +58,12 @@ class DeploymentAgent(BaseAgent):
     """
 
     def __init__(self, docker_builder=None, k8s_deployer=None, health_checker=None,
-                 docker_remediator=None,
                  health_check_timeout: float = 5.0,
                  health_check_latency_threshold_ms: float = 2000.0):
         super().__init__(AgentType.DEPLOYMENT)
         self._docker_builder = docker_builder
         self._k8s_deployer = k8s_deployer
         self._health_checker = health_checker
-        self._docker_remediator = docker_remediator
         self._settings = get_settings()
         # FIX #7 — real health check configuration
         self._hc_timeout = health_check_timeout              # HTTP connect+read timeout
@@ -324,25 +322,8 @@ class DeploymentAgent(BaseAgent):
                 return result
             except Exception as e:
                 logger.error("k8s_deployment_failed", error=str(e))
-        
-        # Fallback: Docker Remediation (Primary for Demo)
-        if self._docker_remediator:
-            try:
-                # If it's a memory issue, just restart
-                diagnosis_category = context.get("validation", {}).get("root_cause_category", "")
-                if "resource" in diagnosis_category.lower() or "defect" in diagnosis_category.lower():
-                    return await self._docker_remediator.restart_container(target_service)
-                
-                # Otherwise, attempt config patch
-                config_changes = context.get("patch_data", {}).get("config_changes", {})
-                if config_changes:
-                    return await self._docker_remediator.apply_config_patch(target_service, config_changes)
-                
-                return await self._docker_remediator.restart_container(target_service)
-            except Exception as e:
-                logger.error("docker_deployment_failed", error=str(e))
 
-        # Simulated deployment fallback
+        # Simulated deployment
         return {
             "status": "deployed",
             "strategy": strategy,
